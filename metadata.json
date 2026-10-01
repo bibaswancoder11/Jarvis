@@ -1,0 +1,11 @@
+{
+  "name": "JARVIS — Personal Autonomous Intelligence System",
+  "description": "Locally operated, modular artificial-intelligence assistant and centralized intelligence OS across personal computing, device mesh, automation, and voice interfaces.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
