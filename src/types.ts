@@ -30,6 +30,26 @@ export interface InstalledApp {
   lastOpened?: number;
 }
 
+export interface PhoneCallState {
+  isActive: boolean;
+  contactName: string;
+  phoneNumber: string;
+  direction: 'incoming' | 'outgoing';
+  status: 'ringing' | 'connected' | 'ended';
+  durationSeconds: number;
+  timestamp: number;
+}
+
+export interface PhoneMessage {
+  id: string;
+  app: 'signal' | 'whatsapp' | 'telegram' | 'sms';
+  sender: string;
+  recipient: string;
+  content: string;
+  timestamp: number;
+  status: 'sent' | 'delivered' | 'read';
+}
+
 export interface DeviceFeatures {
   volume?: number; // 0 - 100
   brightness?: number; // 0 - 100
@@ -42,6 +62,8 @@ export interface DeviceFeatures {
   ringerMode?: 'normal' | 'silent' | 'vibrate';
   cameraActive?: boolean;
   screenUnlocked?: boolean;
+  activeCall?: PhoneCallState | null;
+  recentMessages?: PhoneMessage[];
 }
 
 export interface MobilePairingSession {

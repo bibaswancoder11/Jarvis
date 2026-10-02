@@ -213,6 +213,27 @@ let connectedDevices: Array<any> = [
       ringerMode: "normal",
       cameraActive: false,
       screenUnlocked: false,
+      activeCall: null,
+      recentMessages: [
+        {
+          id: "msg-init-1",
+          app: "signal",
+          sender: "Dr. Bruce Banner",
+          recipient: "You",
+          content: "Telemetry package calibrated. Waiting for Jarvis Core sync.",
+          timestamp: Date.now() - 3600000,
+          status: "read",
+        },
+        {
+          id: "msg-init-2",
+          app: "whatsapp",
+          sender: "Pepper Potts",
+          recipient: "You",
+          content: "Autonomous server backup completed for the lab.",
+          timestamp: Date.now() - 1800000,
+          status: "delivered",
+        },
+      ],
     },
     installedApps: [
       {
@@ -223,6 +244,27 @@ let connectedDevices: Array<any> = [
         lockType: "pin",
         lockCode: "7701",
         isRunning: false,
+      },
+      {
+        id: "app-whatsapp",
+        name: "WhatsApp Messenger",
+        category: "Messaging",
+        isLocked: false,
+        isRunning: true,
+      },
+      {
+        id: "app-telegram",
+        name: "Telegram Messenger",
+        category: "Messaging",
+        isLocked: false,
+        isRunning: false,
+      },
+      {
+        id: "app-phone-dialer",
+        name: "Phone & Telecom Hub",
+        category: "Telecom",
+        isLocked: false,
+        isRunning: true,
       },
       {
         id: "app-banking",
@@ -797,6 +839,124 @@ app.post("/api/jarvis/devices/action", (req, res) => {
     return broadcastAndRespond(200, { success: true, device: dev, message: `Battery saver mode ${dev.features.batterySaver ? 'active' : 'disabled'}.` });
   }
 
+  // 3b. High-Level Remote Telecom & Calling Controls
+  else if (action === "initiate_call" || action === "make_call") {
+    if (!dev.features) dev.features = {};
+    const contact = params?.contact || params?.name || "Direct Line";
+    const phoneNum = params?.phoneNumber || params?.number || "+1 (555) 019-4892";
+    
+    dev.features.activeCall = {
+      isActive: true,
+      contactName: contact,
+      phoneNumber: phoneNum,
+      direction: "outgoing",
+      status: "ringing",
+      durationSeconds: 0,
+      timestamp: Date.now(),
+    };
+
+    // Auto-connect call after 2.5s for realism
+    setTimeout(() => {
+      if (dev.features?.activeCall && dev.features.activeCall.status === "ringing") {
+        dev.features.activeCall.status = "connected";
+        broadcastSSE("device_action", {
+          deviceId,
+          action: "call_status_update",
+          params: { status: "connected" },
+          device: dev,
+        });
+        broadcastSSE("devices_updated", { devices: connectedDevices });
+      }
+    }, 2500);
+
+    return broadcastAndRespond(200, {
+      success: true,
+      device: dev,
+      call: dev.features.activeCall,
+      message: `Outgoing call initiated to ${contact} (${phoneNum}) on ${dev.name}.`,
+    });
+  } else if (action === "answer_call") {
+    if (dev.features?.activeCall) {
+      dev.features.activeCall.status = "connected";
+      return broadcastAndRespond(200, {
+        success: true,
+        device: dev,
+        call: dev.features.activeCall,
+        message: `Call answered with ${dev.features.activeCall.contactName}. Audio channel open.`,
+      });
+    }
+    return broadcastAndRespond(400, { success: false, error: "No active incoming call to answer." });
+  } else if (action === "cut_call" || action === "end_call" || action === "hangup_call" || action === "reject_call") {
+    if (!dev.features) dev.features = {};
+    const prevCall = dev.features.activeCall;
+    dev.features.activeCall = null;
+    return broadcastAndRespond(200, {
+      success: true,
+      device: dev,
+      previousCall: prevCall,
+      message: `Active call terminated and disconnected on ${dev.name}.`,
+    });
+  } else if (action === "simulate_incoming_call") {
+    if (!dev.features) dev.features = {};
+    const contact = params?.contact || "Tony Stark";
+    const phoneNum = params?.phoneNumber || "+1 (212) 555-0199";
+
+    dev.features.activeCall = {
+      isActive: true,
+      contactName: contact,
+      phoneNumber: phoneNum,
+      direction: "incoming",
+      status: "ringing",
+      durationSeconds: 0,
+      timestamp: Date.now(),
+    };
+
+    return broadcastAndRespond(200, {
+      success: true,
+      device: dev,
+      call: dev.features.activeCall,
+      message: `Incoming call simulated from ${contact} (${phoneNum}) on ${dev.name}.`,
+    });
+  }
+
+  // 3c. High-Level Remote Messaging via 3rd Party Apps (Signal, WhatsApp, Telegram, SMS)
+  else if (action === "send_message" || action === "dispatch_message") {
+    if (!dev.features) dev.features = {};
+    const app = (params?.app || "signal").toLowerCase() as 'signal' | 'whatsapp' | 'telegram' | 'sms';
+    const recipient = params?.recipient || params?.to || "Direct Contact";
+    const content = params?.content || params?.message || params?.text || "Synchronized message via JARVIS Core.";
+
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      app,
+      sender: "You (JARVIS)",
+      recipient,
+      content,
+      timestamp: Date.now(),
+      status: "delivered" as const,
+    };
+
+    if (!dev.features.recentMessages) dev.features.recentMessages = [];
+    dev.features.recentMessages.unshift(newMsg);
+    if (dev.features.recentMessages.length > 20) {
+      dev.features.recentMessages.pop();
+    }
+
+    const appNameMap: Record<string, string> = {
+      signal: "Signal",
+      whatsapp: "WhatsApp",
+      telegram: "Telegram",
+      sms: "Native SMS",
+    };
+
+    return broadcastAndRespond(200, {
+      success: true,
+      device: dev,
+      messageRecord: newMsg,
+      message: `Message dispatched to ${recipient} via ${appNameMap[app] || app.toUpperCase()}: "${content}"`,
+    });
+  }
+
   // 4. Basic device toggles
   else if (action === "toggle_lock") {
     dev.data.isLocked = !dev.data.isLocked;
@@ -1299,7 +1459,224 @@ function executeJarvisDeviceFunction(prompt: string) {
     };
   }
 
-  // D2. Unlocking Smart Deadbolt or Bluetooth Lock
+  // D3. Telecom: Cut ongoing call / Hang up / End call
+  const isCutCall = p.includes("cut call") || p.includes("cut ongoing call") || p.includes("hang up") || 
+                    p.includes("end call") || p.includes("disconnect call") || p.includes("reject call") || 
+                    (p.includes("cut") && p.includes("call"));
+  if (isCutCall && phone) {
+    if (!phone.features) phone.features = {};
+    const activeContact = phone.features.activeCall?.contactName || "active connection";
+    phone.features.activeCall = null;
+    broadcastSSE("device_action", {
+      deviceId: phone.id,
+      action: "cut_call",
+      device: phone,
+    });
+    broadcastSSE("devices_updated", { devices: connectedDevices });
+
+    return {
+      intent: "Terminate & Disconnect Active Phone Call",
+      confidence: 0.99,
+      tasks: [
+        {
+          id: `task-${Date.now()}-1`,
+          step: 1,
+          title: "Send Cellular Cut Signal & Release Audio Pipeline",
+          tool: "device_control",
+          parameters: { deviceId: phone.id, action: "cut_call" },
+          status: "completed",
+          requiredSecurityLevel: 1,
+          output: "Radio frequency baseband cut. Call session terminated.",
+        },
+      ],
+      reply: `Ongoing call with ${activeContact} has been cut and disconnected, sir. Audio channels are returned to standby.`,
+    };
+  }
+
+  // D4. Telecom: Answer Incoming Call
+  const isAnswerCall = p.includes("answer call") || p.includes("pick up call") || p.includes("accept call") || 
+                       p.includes("receive call") || (p.includes("answer") && p.includes("phone"));
+  if (isAnswerCall && phone) {
+    if (!phone.features) phone.features = {};
+    if (phone.features.activeCall) {
+      phone.features.activeCall.status = "connected";
+    } else {
+      phone.features.activeCall = {
+        isActive: true,
+        contactName: "Incoming Caller",
+        phoneNumber: "+1 (555) 019-4892",
+        direction: "incoming",
+        status: "connected",
+        durationSeconds: 1,
+        timestamp: Date.now(),
+      };
+    }
+    broadcastSSE("device_action", {
+      deviceId: phone.id,
+      action: "answer_call",
+      device: phone,
+    });
+    broadcastSSE("devices_updated", { devices: connectedDevices });
+
+    return {
+      intent: "Answer Incoming Cellular Call",
+      confidence: 0.98,
+      tasks: [
+        {
+          id: `task-${Date.now()}-1`,
+          step: 1,
+          title: "Engage Speaker & Connect Voice Stream",
+          tool: "device_control",
+          parameters: { deviceId: phone.id, action: "answer_call" },
+          status: "completed",
+          requiredSecurityLevel: 1,
+          output: "Call answered. Bi-directional audio active.",
+        },
+      ],
+      reply: `Call connected with ${phone.features.activeCall.contactName}, sir. Audio pipeline is routed through your speaker array.`,
+    };
+  }
+
+  // D5. Telecom: Make / Initiate Call
+  const isMakeCall = (p.includes("call") || p.includes("dial") || p.includes("ring")) && 
+                     !p.includes("ring my phone") && !p.includes("locate") && !isCutCall && !isAnswerCall;
+  if (isMakeCall && phone) {
+    let targetContact = "Tony Stark";
+    let targetNumber = "+1 (212) 555-0199";
+
+    if (p.includes("pepper")) {
+      targetContact = "Pepper Potts";
+      targetNumber = "+1 (212) 555-0144";
+    } else if (p.includes("banner") || p.includes("bruce")) {
+      targetContact = "Dr. Bruce Banner";
+      targetNumber = "+1 (617) 555-0182";
+    } else if (p.includes("rhodey") || p.includes("war machine")) {
+      targetContact = "Col. James Rhodes";
+      targetNumber = "+1 (703) 555-0177";
+    } else {
+      // Try to extract name after "call"
+      const match = p.match(/(?:call|dial)\s+([a-zA-Z0-9\s]+?)(?:\s+on|\s+at|$)/i);
+      if (match && match[1]) {
+        targetContact = match[1].trim();
+      }
+    }
+
+    if (!phone.features) phone.features = {};
+    phone.features.activeCall = {
+      isActive: true,
+      contactName: targetContact,
+      phoneNumber: targetNumber,
+      direction: "outgoing",
+      status: "ringing",
+      durationSeconds: 0,
+      timestamp: Date.now(),
+    };
+
+    setTimeout(() => {
+      if (phone.features?.activeCall && phone.features.activeCall.status === "ringing") {
+        phone.features.activeCall.status = "connected";
+        broadcastSSE("devices_updated", { devices: connectedDevices });
+      }
+    }, 2500);
+
+    broadcastSSE("device_action", {
+      deviceId: phone.id,
+      action: "initiate_call",
+      params: { contact: targetContact, phoneNumber: targetNumber },
+      device: phone,
+    });
+    broadcastSSE("devices_updated", { devices: connectedDevices });
+
+    return {
+      intent: `Initiate Cellular Call to ${targetContact}`,
+      confidence: 0.98,
+      tasks: [
+        {
+          id: `task-${Date.now()}-1`,
+          step: 1,
+          title: `Dispatch Dialing Handshake for ${targetContact} [${targetNumber}]`,
+          tool: "device_control",
+          parameters: { deviceId: phone.id, action: "initiate_call", contact: targetContact, phoneNumber: targetNumber },
+          status: "completed",
+          requiredSecurityLevel: 1,
+          output: `Dial tone initiated. Cellular baseband carrier locked.`,
+        },
+      ],
+      reply: `Dialing ${targetContact} (${targetNumber}) on your Pixel 9 Pro now, sir. Channel is opening.`,
+    };
+  }
+
+  // D6. Messaging: 3rd Party Apps (Signal, WhatsApp, Telegram, SMS)
+  const isMessage = p.includes("send message") || p.includes("text") || p.includes("message") || 
+                    p.includes("whatsapp") || p.includes("telegram") || (p.includes("signal") && (p.includes("send") || p.includes("tell")));
+  if (isMessage && phone) {
+    let chosenApp: 'signal' | 'whatsapp' | 'telegram' | 'sms' = 'signal';
+    if (p.includes("whatsapp")) chosenApp = 'whatsapp';
+    else if (p.includes("telegram")) chosenApp = 'telegram';
+    else if (p.includes("sms") || p.includes("text")) chosenApp = 'sms';
+
+    let recipient = "Dr. Bruce Banner";
+    if (p.includes("pepper")) recipient = "Pepper Potts";
+    else if (p.includes("tony")) recipient = "Tony Stark";
+    else if (p.includes("rhodey")) recipient = "Col. James Rhodes";
+    else {
+      const match = p.match(/(?:to|message)\s+([a-zA-Z\s]+?)(?:\s+saying|\s+that|\s*:|$)/i);
+      if (match && match[1]) recipient = match[1].trim();
+    }
+
+    let messageContent = "Synchronized status package nominal.";
+    const contentMatch = p.match(/(?:saying|that|message is|content:?)\s+(.*)/i);
+    if (contentMatch && contentMatch[1]) {
+      messageContent = contentMatch[1].trim();
+    }
+
+    const appNameMap: Record<string, string> = {
+      signal: "Signal",
+      whatsapp: "WhatsApp",
+      telegram: "Telegram",
+      sms: "SMS",
+    };
+
+    const newMsgRecord = {
+      id: `msg-${Date.now()}`,
+      app: chosenApp,
+      sender: "You (JARVIS)",
+      recipient,
+      content: messageContent,
+      timestamp: Date.now(),
+      status: "delivered" as const,
+    };
+
+    if (!phone.features) phone.features = {};
+    if (!phone.features.recentMessages) phone.features.recentMessages = [];
+    phone.features.recentMessages.unshift(newMsgRecord);
+
+    broadcastSSE("device_action", {
+      deviceId: phone.id,
+      action: "send_message",
+      params: { app: chosenApp, recipient, content: messageContent },
+      device: phone,
+    });
+    broadcastSSE("devices_updated", { devices: connectedDevices });
+
+    return {
+      intent: `Dispatch Encrypted Message via ${appNameMap[chosenApp]} to ${recipient}`,
+      confidence: 0.99,
+      tasks: [
+        {
+          id: `task-${Date.now()}-1`,
+          step: 1,
+          title: `Authenticate ${appNameMap[chosenApp]} Sandbox & Dispatch Payload`,
+          tool: "device_control",
+          parameters: { deviceId: phone.id, action: "send_message", app: chosenApp, recipient, content: messageContent },
+          status: "completed",
+          requiredSecurityLevel: 1,
+          output: `Payload dispatched via ${appNameMap[chosenApp]}. Status: Delivered.`,
+        },
+      ],
+      reply: `Message transmitted to ${recipient} via ${appNameMap[chosenApp]}: "${messageContent}", sir. Delivery confirmed.`,
+    };
+  }
   const isDeadboltUnlock = (p.includes("unlock") || p.includes("disengage") || p.includes("open")) && 
                            (p.includes("deadbolt") || p.includes("door") || p.includes("smart lock") || p.includes("perimeter") || p.includes("gate"));
   if (isDeadboltUnlock && deadbolt) {
@@ -1567,6 +1944,26 @@ app.post("/api/jarvis/chat", async (req, res) => {
     return res.status(400).json({ error: "Prompt is required" });
   }
 
+  // Fast-path: Check direct sovereign device functions (calling, cutting calls, 3rd party messaging, unlocking, hardware)
+  const directDeviceResult = executeJarvisDeviceFunction(prompt);
+  if (directDeviceResult) {
+    const plan = {
+      id: `plan-${Date.now()}`,
+      userPrompt: prompt,
+      intent: directDeviceResult.intent,
+      confidence: directDeviceResult.confidence || 0.99,
+      tasks: directDeviceResult.tasks,
+      status: "completed" as const,
+      createdAt: Date.now(),
+    };
+    return res.json({
+      success: true,
+      source: "local-neural-core",
+      plan,
+      reply: directDeviceResult.reply,
+    });
+  }
+
   const ai = getGenAI();
 
   // If Gemini API is available and mode is hybrid_gemini or local needs smart reasoning
@@ -1629,7 +2026,7 @@ When the user asks you something or gives a command, you MUST formulate a JSON r
 - reply: Jarvis's spoken conversational response to the user. Keep it natural, polite, respectful, and concise (addressing the user as "sir" or by title when natural, without being repetitive).`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
+        model: "gemini-2.5-flash",
         contents: [
           ...chatHistory.slice(-4).map((m: any) => ({
             role: m.sender === "user" ? "user" : "model",
@@ -1844,6 +2241,24 @@ app.post("/api/jarvis/execute-task", (req, res) => {
         } else {
           resultOutput = `Application unlocked on ${dev.name}.`;
         }
+      } else if (dev && parameters?.action === "initiate_call") {
+        if (!dev.features) dev.features = {};
+        dev.features.activeCall = {
+          isActive: true,
+          contactName: parameters?.contact || "Direct Line",
+          phoneNumber: parameters?.phoneNumber || "+1 (555) 019-4892",
+          direction: "outgoing",
+          status: "ringing",
+          durationSeconds: 0,
+          timestamp: Date.now(),
+        };
+        resultOutput = `Call dialed to ${dev.features.activeCall.contactName} (${dev.features.activeCall.phoneNumber}) on ${dev.name}.`;
+      } else if (dev && (parameters?.action === "cut_call" || parameters?.action === "end_call")) {
+        if (!dev.features) dev.features = {};
+        dev.features.activeCall = null;
+        resultOutput = `Active phone call cut and disconnected on ${dev.name}.`;
+      } else if (dev && parameters?.action === "send_message") {
+        resultOutput = `Message dispatched via ${parameters?.app || "Signal"} to ${parameters?.recipient || "Contact"}: "${parameters?.content || ""}".`;
       } else {
         resultOutput = `Command dispatched to device ${dev?.name || parameters?.deviceId || "target"}. State synchronized.`;
       }

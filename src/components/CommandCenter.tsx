@@ -67,14 +67,16 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
   };
 
   const quickDirectives = [
+    { label: 'Call Tony Stark', prompt: 'Call Tony Stark on my Pixel phone', icon: '📞' },
+    { label: 'Cut Ongoing Call', prompt: 'Cut the ongoing call and disconnect phone line', icon: '🔴' },
+    { label: 'Message on WhatsApp', prompt: 'Send message to Pepper Potts on WhatsApp saying: Lab systems are 100% nominal', icon: '💬' },
+    { label: 'Message on Signal', prompt: 'Send message to Dr. Bruce Banner on Signal saying: Quantum core calibration complete', icon: '🛡️' },
     { label: 'Unlock Phone (PIN: 4892)', prompt: 'Unlock my Pixel phone with PIN 4892', icon: '📱' },
-    { label: 'Unlock Signal (PIN: 7701)', prompt: 'Unlock Signal app with code 7701 and open it', icon: '💬' },
-    { label: 'Unlock Banking (ALPHA9)', prompt: 'Unlock Stark Financial banking app with code ALPHA9', icon: '💳' },
+    { label: 'Unlock Signal (PIN: 7701)', prompt: 'Unlock Signal app with code 7701 and open it', icon: '🔓' },
     { label: 'Ring My Phone', prompt: 'Ring my phone at maximum volume to locate it', icon: '🔔' },
     { label: 'Phone Flashlight', prompt: 'Turn on phone flashlight at full brightness', icon: '💡' },
     { label: 'Lock All Devices & Apps', prompt: 'Lock my phone, lock all secure apps, and engage deadbolts', icon: '🔒' },
-    { label: 'Security Lockdown', prompt: 'Execute Facility Lockdown and seal all smart deadbolts', icon: '🛡️' },
-    { label: 'System Diagnostics', prompt: 'Run complete system diagnostic sweep, VRAM telemetry, and device ping audit', icon: '⚡' },
+    { label: 'Security Lockdown', prompt: 'Execute Facility Lockdown and seal all smart deadbolts', icon: '⚡' },
   ];
 
   return (

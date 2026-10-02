@@ -11,10 +11,13 @@ import {
   Eye, 
   Database, 
   Zap,
-  Lock
+  Lock,
+  Download,
+  Smartphone
 } from 'lucide-react';
 import { IntelligenceMode, SecurityLevel, SystemStatus } from '../types';
 import { playTechBeep } from '../utils/audio';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderHUDProps {
   activeTab: 'hud' | 'devices' | 'workflows' | 'memory' | 'vision' | 'diagnostics';
@@ -26,6 +29,7 @@ interface HeaderHUDProps {
   onOpenPairing?: () => void;
   onOpenMobileSimulator?: () => void;
   isMobilePaired?: boolean;
+  onOpenOfflineGuide?: () => void;
 }
 
 export const HeaderHUD: React.FC<HeaderHUDProps> = ({
@@ -38,6 +42,7 @@ export const HeaderHUD: React.FC<HeaderHUDProps> = ({
   onOpenPairing,
   onOpenMobileSimulator,
   isMobilePaired = false,
+  onOpenOfflineGuide,
 }) => {
   const formatUptime = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
@@ -174,6 +179,24 @@ export const HeaderHUD: React.FC<HeaderHUDProps> = ({
               <span className="hidden sm:inline">{isMobilePaired ? 'MOBILE TETHERED' : 'MOBILE & BLE LINK'}</span>
             </button>
           )}
+
+          {/* Offline APK & GitHub Pages Packaging Guide Launcher */}
+          {onOpenOfflineGuide && (
+            <button
+              onClick={() => {
+                playTechBeep(1400, 0.03);
+                onOpenOfflineGuide();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-400/30 text-purple-200 hover:text-white text-[11px] font-sans font-semibold transition-all shadow-sm active:scale-95"
+              title="Publish to GitHub Pages or Build Offline Android APK"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-purple-400" />
+              <span className="hidden sm:inline">APK & GITHUB</span>
+            </button>
+          )}
+
+          {/* In-App PWA / WebAPK Install Prompt Button */}
+          <PWAInstallButton />
 
           {/* Audio Master Toggle (Frosted Glass Button) */}
           <button

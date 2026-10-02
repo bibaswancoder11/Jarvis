@@ -25,15 +25,24 @@ import {
   VolumeX,
   Radio,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Phone,
+  PhoneCall,
+  PhoneOff,
+  Send,
+  MessageCircle,
+  User
 } from 'lucide-react';
 import { 
   playTechBeep, 
   playDeviceUnlockSound, 
   playDeviceLockSound, 
   playPhoneRingSound, 
+  playCallDialTone,
+  playCallEndedTone,
   speakText 
 } from '../utils/audio';
+import { PhoneCallState, PhoneMessage } from '../types';
 
 interface MobileNodeViewProps {
   isEmbedded?: boolean;
@@ -62,6 +71,36 @@ export const MobileNodeView: React.FC<MobileNodeViewProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const ringerAudioInterval = useRef<any>(null);
 
+  // Active Phone Call state
+  const [activeCall, setActiveCall] = useState<PhoneCallState | null>(null);
+  const [callDuration, setCallDuration] = useState<number>(0);
+  const callTimerRef = useRef<any>(null);
+
+  // Messaging state
+  const [messagesList, setMessagesList] = useState<PhoneMessage[]>([
+    {
+      id: 'm-1',
+      app: 'signal',
+      sender: 'Dr. Bruce Banner',
+      recipient: 'You',
+      content: 'Quantum telemetry array synchronized. Ready for deployment.',
+      timestamp: Date.now() - 3600000 * 2,
+      status: 'read',
+    },
+    {
+      id: 'm-2',
+      app: 'whatsapp',
+      sender: 'Pepper Potts',
+      recipient: 'You',
+      content: 'Security perimeter lockdown scheduled for 22:00.',
+      timestamp: Date.now() - 1800000,
+      status: 'delivered',
+    },
+  ]);
+  const [composerApp, setComposerApp] = useState<'signal' | 'whatsapp' | 'telegram' | 'sms'>('whatsapp');
+  const [composerRecipient, setComposerRecipient] = useState<string>('Pepper Potts');
+  const [composerText, setComposerText] = useState<string>('');
+
   // Installed applications state on mobile
   const [apps, setApps] = useState([
     {
@@ -73,6 +112,30 @@ export const MobileNodeView: React.FC<MobileNodeViewProps> = ({
       isLocked: true,
       lockType: 'pin',
       lockCode: '7701',
+    },
+    {
+      id: 'app-whatsapp',
+      name: 'WhatsApp Messenger',
+      category: 'Instant Messaging',
+      icon: MessageCircle,
+      color: 'bg-emerald-600',
+      isLocked: false,
+    },
+    {
+      id: 'app-telegram',
+      name: 'Telegram Messenger',
+      category: 'Cloud Messaging',
+      icon: Send,
+      color: 'bg-sky-600',
+      isLocked: false,
+    },
+    {
+      id: 'app-phone-dialer',
+      name: 'Phone & Telecom',
+      category: 'Telecom',
+      icon: Phone,
+      color: 'bg-teal-600',
+      isLocked: false,
     },
     {
       id: 'app-banking',
@@ -234,6 +297,69 @@ export const MobileNodeView: React.FC<MobileNodeViewProps> = ({
               navigator.vibrate(80);
             }
           }
+        } else if (action === 'initiate_call' || action === 'make_call') {
+          playCallDialTone();
+          const callData: PhoneCallState = {
+            isActive: true,
+            contactName: params?.contact || 'Tony Stark',
+            phoneNumber: params?.phoneNumber || '+1 (212) 555-0199',
+            direction: 'outgoing',
+            status: 'ringing',
+            durationSeconds: 0,
+            timestamp: Date.now(),
+          };
+          setActiveCall(callData);
+          setCallDuration(0);
+          if (callTimerRef.current) clearInterval(callTimerRef.current);
+          setTimeout(() => {
+            setActiveCall((prev) => prev ? { ...prev, status: 'connected' } : null);
+            callTimerRef.current = setInterval(() => {
+              setCallDuration((d) => d + 1);
+            }, 1000);
+          }, 2500);
+        } else if (action === 'simulate_incoming_call') {
+          playPhoneRingSound();
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate([200, 100, 200, 100, 400]);
+          }
+          const callData: PhoneCallState = {
+            isActive: true,
+            contactName: params?.contact || 'Tony Stark',
+            phoneNumber: params?.phoneNumber || '+1 (212) 555-0199',
+            direction: 'incoming',
+            status: 'ringing',
+            durationSeconds: 0,
+            timestamp: Date.now(),
+          };
+          setActiveCall(callData);
+          setCallDuration(0);
+        } else if (action === 'answer_call') {
+          playTechBeep(1400, 0.04);
+          setActiveCall((prev) => prev ? { ...prev, status: 'connected' } : null);
+          if (callTimerRef.current) clearInterval(callTimerRef.current);
+          callTimerRef.current = setInterval(() => {
+            setCallDuration((d) => d + 1);
+          }, 1000);
+        } else if (action === 'cut_call' || action === 'end_call' || action === 'hangup_call') {
+          playCallEndedTone();
+          setActiveCall(null);
+          setCallDuration(0);
+          if (callTimerRef.current) {
+            clearInterval(callTimerRef.current);
+            callTimerRef.current = null;
+          }
+        } else if (action === 'send_message') {
+          playTechBeep(1500, 0.03);
+          const newMsg: PhoneMessage = {
+            id: `msg-${Date.now()}`,
+            app: params?.app || 'signal',
+            sender: 'You (JARVIS)',
+            recipient: params?.recipient || 'Contact',
+            content: params?.content || 'Status synchronized.',
+            timestamp: Date.now(),
+            status: 'delivered',
+          };
+          setMessagesList((prev) => [newMsg, ...prev]);
         }
       } catch (err) {
         console.warn('SSE action parse error:', err);
@@ -442,6 +568,120 @@ export const MobileNodeView: React.FC<MobileNodeViewProps> = ({
           <div className="w-2.5 h-2.5 rounded-full bg-[#111827] border border-cyan-500/40"></div>
           <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></div>
         </div>
+
+        {/* ACTIVE CALL OVERLAY (Incoming, Dialing, or Ongoing Connected Call) */}
+        {activeCall && (
+          <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-2xl flex flex-col justify-between p-6 animate-scale-up text-white select-none">
+            {/* Call Header */}
+            <div className="text-center pt-10 space-y-1">
+              <span className="text-[10px] font-mono-tech uppercase tracking-widest text-cyan-400 font-semibold">
+                {activeCall.status === 'connected' ? 'CELLULAR CALL ACTIVE' : activeCall.direction === 'incoming' ? 'INCOMING CALL' : 'DIALING OUTGOING CALL...'}
+              </span>
+              <h2 className="text-2xl font-bold text-white tracking-tight mt-1">
+                {activeCall.contactName}
+              </h2>
+              <p className="text-xs text-slate-400 font-mono">
+                {activeCall.phoneNumber}
+              </p>
+              <div className="pt-2">
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-mono font-medium ${
+                  activeCall.status === 'connected'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                }`}>
+                  <span className="w-2 h-2 rounded-full bg-current" />
+                  <span>
+                    {activeCall.status === 'connected' 
+                      ? `${Math.floor(callDuration / 60).toString().padStart(2, '0')}:${(callDuration % 60).toString().padStart(2, '0')}`
+                      : 'Connecting...'}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* Caller Avatar Graphic */}
+            <div className="my-auto flex flex-col items-center">
+              <div className="w-28 h-28 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-700 flex items-center justify-center text-white text-3xl font-black shadow-[0_0_40px_rgba(6,182,212,0.4)] border-2 border-white/20 mb-3 animate-pulse">
+                {activeCall.contactName.substring(0, 2).toUpperCase()}
+              </div>
+              <span className="text-xs text-slate-400 font-sans">
+                Voice Link HD • Sovereign Encryption
+              </span>
+            </div>
+
+            {/* Call Control Buttons */}
+            <div className="pb-8 space-y-4">
+              {activeCall.status === 'ringing' && activeCall.direction === 'incoming' ? (
+                <div className="flex items-center justify-around max-w-[280px] mx-auto">
+                  {/* Reject / Cut Button */}
+                  <button
+                    onClick={() => {
+                      playCallEndedTone();
+                      setActiveCall(null);
+                      setCallDuration(0);
+                      fetch('/api/jarvis/devices/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ deviceId: 'dev-phone-01', action: 'cut_call' }),
+                      });
+                    }}
+                    className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex flex-col items-center justify-center shadow-lg active:scale-90 transition-transform"
+                    title="Reject / Cut Call"
+                  >
+                    <PhoneOff className="w-7 h-7" />
+                  </button>
+
+                  {/* Accept / Answer Button */}
+                  <button
+                    onClick={() => {
+                      playTechBeep(1400, 0.04);
+                      setActiveCall((prev) => prev ? { ...prev, status: 'connected' } : null);
+                      if (callTimerRef.current) clearInterval(callTimerRef.current);
+                      callTimerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
+                      fetch('/api/jarvis/devices/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ deviceId: 'dev-phone-01', action: 'answer_call' }),
+                      });
+                    }}
+                    className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex flex-col items-center justify-center shadow-lg active:scale-90 transition-transform animate-bounce"
+                    title="Answer Call"
+                  >
+                    <PhoneCall className="w-7 h-7" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center">
+                  {/* Cut / End Ongoing Call Button */}
+                  <button
+                    onClick={() => {
+                      playCallEndedTone();
+                      setActiveCall(null);
+                      setCallDuration(0);
+                      if (callTimerRef.current) {
+                        clearInterval(callTimerRef.current);
+                        callTimerRef.current = null;
+                      }
+                      fetch('/api/jarvis/devices/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ deviceId: 'dev-phone-01', action: 'cut_call' }),
+                      });
+                    }}
+                    className="w-20 h-20 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex flex-col items-center justify-center shadow-2xl active:scale-90 transition-all border-2 border-rose-400"
+                    title="Cut Ongoing Call"
+                  >
+                    <PhoneOff className="w-8 h-8" />
+                    <span className="text-[10px] font-bold mt-1 uppercase tracking-wider">CUT CALL</span>
+                  </button>
+                </div>
+              )}
+              <div className="text-center text-[10px] font-mono-tech text-slate-500">
+                JARVIS VOICE PIPELINE • REMOTE CONTROLLED
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Mobile Top Status Bar */}
         <div className="pt-3 pb-1 px-7 flex items-center justify-between text-[11px] font-sans font-medium text-slate-200 z-30">
@@ -729,6 +969,184 @@ export const MobileNodeView: React.FC<MobileNodeViewProps> = ({
                     <Camera className="w-4 h-4" />
                     <span>Snap Sensor Frame</span>
                   </button>
+                </div>
+              ) : (activeApp === 'app-signal' || activeApp === 'app-whatsapp' || activeApp === 'app-telegram') ? (
+                /* 3rd Party Encrypted Messaging Client */
+                <div className="w-full h-full flex flex-col text-left">
+                  {/* Messages Feed */}
+                  <div className="flex-1 overflow-y-auto space-y-2 p-1 font-sans text-xs">
+                    {messagesList
+                      .filter((m) => {
+                        if (activeApp === 'app-signal') return m.app === 'signal';
+                        if (activeApp === 'app-whatsapp') return m.app === 'whatsapp';
+                        return m.app === 'telegram' || m.app === 'sms';
+                      })
+                      .map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={`p-2.5 rounded-2xl max-w-[85%] ${
+                            msg.sender.includes('You')
+                              ? 'ml-auto bg-cyan-600 text-white rounded-br-none'
+                              : 'mr-auto bg-white/10 text-slate-200 rounded-bl-none'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between text-[10px] text-cyan-200/80 mb-0.5 font-mono">
+                            <span>{msg.sender}</span>
+                            <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <p className="text-xs font-normal leading-snug">{msg.content}</p>
+                        </div>
+                      ))}
+                    {messagesList.filter(m => activeApp.includes(m.app)).length === 0 && (
+                      <div className="text-center py-8 text-slate-500 text-xs">
+                        No previous messages in encrypted thread. Send one below or instruct JARVIS via voice.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Message Composer */}
+                  <div className="pt-2 border-t border-white/10 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={composerText}
+                      onChange={(e) => setComposerText(e.target.value)}
+                      placeholder="Type encrypted message..."
+                      className="flex-1 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-sans"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && composerText.trim()) {
+                          const targetAppType = activeApp === 'app-signal' ? 'signal' : activeApp === 'app-whatsapp' ? 'whatsapp' : 'telegram';
+                          const newMsg: PhoneMessage = {
+                            id: `msg-${Date.now()}`,
+                            app: targetAppType,
+                            sender: 'You (JARVIS)',
+                            recipient: composerRecipient,
+                            content: composerText.trim(),
+                            timestamp: Date.now(),
+                            status: 'delivered',
+                          };
+                          setMessagesList((prev) => [newMsg, ...prev]);
+                          setComposerText('');
+                          playTechBeep(1400, 0.03);
+                          fetch('/api/jarvis/devices/action', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              deviceId: 'dev-phone-01',
+                              action: 'send_message',
+                              params: { app: targetAppType, recipient: composerRecipient, content: newMsg.content },
+                            }),
+                          });
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        if (!composerText.trim()) return;
+                        const targetAppType = activeApp === 'app-signal' ? 'signal' : activeApp === 'app-whatsapp' ? 'whatsapp' : 'telegram';
+                        const newMsg: PhoneMessage = {
+                          id: `msg-${Date.now()}`,
+                          app: targetAppType,
+                          sender: 'You (JARVIS)',
+                          recipient: composerRecipient,
+                          content: composerText.trim(),
+                          timestamp: Date.now(),
+                          status: 'delivered',
+                        };
+                        setMessagesList((prev) => [newMsg, ...prev]);
+                        setComposerText('');
+                        playTechBeep(1400, 0.03);
+                        fetch('/api/jarvis/devices/action', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            deviceId: 'dev-phone-01',
+                            action: 'send_message',
+                            params: { app: targetAppType, recipient: composerRecipient, content: newMsg.content },
+                          }),
+                        });
+                      }}
+                      className="p-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold transition-all shadow-md active:scale-90"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : activeApp === 'app-phone-dialer' ? (
+                /* Phone Dialer & Telecom Hub */
+                <div className="w-full h-full flex flex-col justify-between text-center p-2">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-mono-tech text-cyan-400 uppercase tracking-widest">
+                      TELECOM CELLULAR CORE
+                    </span>
+                    <h3 className="text-xl font-bold font-mono text-white tracking-widest mt-1">
+                      +1 (212) 555-0199
+                    </h3>
+                    <p className="text-[11px] text-slate-400">Direct Line: Tony Stark</p>
+                  </div>
+
+                  <div className="my-auto grid grid-cols-2 gap-3 max-w-[280px] mx-auto w-full">
+                    <button
+                      onClick={() => {
+                        playCallDialTone();
+                        const callData: PhoneCallState = {
+                          isActive: true,
+                          contactName: 'Tony Stark',
+                          phoneNumber: '+1 (212) 555-0199',
+                          direction: 'outgoing',
+                          status: 'ringing',
+                          durationSeconds: 0,
+                          timestamp: Date.now(),
+                        };
+                        setActiveCall(callData);
+                        fetch('/api/jarvis/devices/action', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            deviceId: 'dev-phone-01',
+                            action: 'initiate_call',
+                            params: { contact: 'Tony Stark', phoneNumber: '+1 (212) 555-0199' },
+                          }),
+                        });
+                      }}
+                      className="p-3 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 flex flex-col items-center gap-1 active:scale-95 transition-all"
+                    >
+                      <PhoneCall className="w-6 h-6 text-emerald-400" />
+                      <span className="text-xs font-bold">Call Stark</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        playPhoneRingSound();
+                        const callData: PhoneCallState = {
+                          isActive: true,
+                          contactName: 'Pepper Potts',
+                          phoneNumber: '+1 (212) 555-0144',
+                          direction: 'incoming',
+                          status: 'ringing',
+                          durationSeconds: 0,
+                          timestamp: Date.now(),
+                        };
+                        setActiveCall(callData);
+                        fetch('/api/jarvis/devices/action', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            deviceId: 'dev-phone-01',
+                            action: 'simulate_incoming_call',
+                            params: { contact: 'Pepper Potts', phoneNumber: '+1 (212) 555-0144' },
+                          }),
+                        });
+                      }}
+                      className="p-3 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 flex flex-col items-center gap-1 active:scale-95 transition-all"
+                    >
+                      <Phone className="w-6 h-6 text-amber-400" />
+                      <span className="text-xs font-bold">Incoming Call</span>
+                    </button>
+                  </div>
+
+                  <div className="text-[10px] font-mono-tech text-slate-500">
+                    VOICE CHANNELS ENCRYPTED • HARDWARE BASEBAND ACTIVE
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">

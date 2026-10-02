@@ -27,7 +27,12 @@ import {
   Sparkles,
   ExternalLink,
   ShieldAlert,
-  Sliders
+  Sliders,
+  Phone,
+  PhoneCall,
+  PhoneOff,
+  MessageSquare,
+  Send
 } from 'lucide-react';
 import { ConnectedDevice, InstalledApp } from '../types';
 import { 
@@ -525,6 +530,133 @@ export const DeviceMeshView: React.FC<DeviceMeshViewProps> = ({
                         <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
                         <span>DND: {dev.features?.dnd ? 'ON' : 'OFF'}</span>
                       </button>
+                    </div>
+
+                    {/* Remote Telecom & Cellular Call Deck */}
+                    <div className="p-2.5 rounded-xl bg-black/40 border border-white/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono-tech text-cyan-300 font-bold flex items-center gap-1.5">
+                          <Phone className="w-3 h-3 text-cyan-400" />
+                          <span>REMOTE TELECOM & CELLULAR</span>
+                        </span>
+                        {dev.features?.activeCall ? (
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse font-mono">
+                            LIVE CALL • {dev.features.activeCall.status.toUpperCase()}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-slate-500 font-mono">STANDBY</span>
+                        )}
+                      </div>
+
+                      {dev.features?.activeCall ? (
+                        <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                              <span className="text-xs font-bold text-white truncate">
+                                {dev.features.activeCall.contactName}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-emerald-300 font-mono">
+                              {dev.features.activeCall.phoneNumber} • {dev.features.activeCall.direction === 'incoming' ? 'Incoming' : 'Connected'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {dev.features.activeCall.status === 'ringing' && dev.features.activeCall.direction === 'incoming' && (
+                              <button
+                                onClick={() => {
+                                  playTechBeep(1400, 0.03);
+                                  onDeviceAction(dev.id, 'answer_call');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[10px] flex items-center gap-1 transition-all"
+                              >
+                                <PhoneCall className="w-3 h-3" />
+                                <span>Answer</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                playTechBeep(1100, 0.04);
+                                onDeviceAction(dev.id, 'cut_call');
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] flex items-center gap-1 transition-all shadow-md active:scale-95"
+                              title="Cut ongoing call remotely"
+                            >
+                              <PhoneOff className="w-3 h-3" />
+                              <span>Cut Call</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                          <button
+                            onClick={() => {
+                              playTechBeep(1300, 0.03);
+                              onDeviceAction(dev.id, 'initiate_call', { contact: 'Tony Stark', phoneNumber: '+1 (212) 555-0199' });
+                            }}
+                            className="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 flex items-center justify-center gap-1.5 transition-colors"
+                          >
+                            <PhoneCall className="w-3 h-3 text-cyan-400" />
+                            <span>Dial Tony Stark</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              playTechBeep(1300, 0.03);
+                              onDeviceAction(dev.id, 'simulate_incoming_call', { contact: 'Pepper Potts', phoneNumber: '+1 (212) 555-0144' });
+                            }}
+                            className="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 flex items-center justify-center gap-1.5 transition-colors"
+                          >
+                            <Phone className="w-3 h-3 text-amber-400" />
+                            <span>Simulate Incoming</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Quick 3rd Party Message Trigger */}
+                      <div className="pt-1 flex items-center gap-1 text-[10px]">
+                        <button
+                          onClick={() => {
+                            playTechBeep(1400, 0.02);
+                            onDeviceAction(dev.id, 'send_message', { 
+                              app: 'whatsapp', 
+                              recipient: 'Pepper Potts', 
+                              content: 'Lab status 100% nominal. JARVIS Core standing by.' 
+                            });
+                          }}
+                          className="flex-1 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 font-medium text-center truncate px-1 transition-colors"
+                          title="Send message via WhatsApp"
+                        >
+                          💬 WhatsApp
+                        </button>
+                        <button
+                          onClick={() => {
+                            playTechBeep(1400, 0.02);
+                            onDeviceAction(dev.id, 'send_message', { 
+                              app: 'signal', 
+                              recipient: 'Dr. Bruce Banner', 
+                              content: 'Quantum telemetry array online.' 
+                            });
+                          }}
+                          className="flex-1 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 font-medium text-center truncate px-1 transition-colors"
+                          title="Send message via Signal"
+                        >
+                          🛡️ Signal
+                        </button>
+                        <button
+                          onClick={() => {
+                            playTechBeep(1400, 0.02);
+                            onDeviceAction(dev.id, 'send_message', { 
+                              app: 'telegram', 
+                              recipient: 'Col. Rhodes', 
+                              content: 'Avionics protocol sync verified.' 
+                            });
+                          }}
+                          className="flex-1 py-1 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/30 text-sky-300 font-medium text-center truncate px-1 transition-colors"
+                          title="Send message via Telegram"
+                        >
+                          ✈️ Telegram
+                        </button>
+                      </div>
                     </div>
 
                     {/* Sliders for Volume & Brightness */}

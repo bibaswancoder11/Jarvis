@@ -10,6 +10,17 @@ import { SystemDiagnosticsPanel } from './components/SystemDiagnosticsPanel';
 import { SecurityAuthModal } from './components/SecurityAuthModal';
 import { MobilePairingModal } from './components/MobilePairingModal';
 import { MobileNodeView } from './components/MobileNodeView';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { OfflineGuideModal } from './components/OfflineGuideModal';
+import { 
+  getLocalDevices, 
+  saveLocalDevices, 
+  getLocalWorkflows, 
+  saveLocalWorkflows, 
+  getLocalKnowledge, 
+  saveLocalKnowledge, 
+  executeOfflineDirective 
+} from './utils/offlineCore';
 import { Wifi } from 'lucide-react';
 import { 
   ChatMessage, 
@@ -55,6 +66,7 @@ export default function App() {
   const [isMobilePairingOpen, setIsMobilePairingOpen] = useState<boolean>(false);
   const [isMobileSimulatorOpen, setIsMobileSimulatorOpen] = useState<boolean>(false);
   const [isMobilePaired, setIsMobilePaired] = useState<boolean>(false);
+  const [isOfflineGuideOpen, setIsOfflineGuideOpen] = useState<boolean>(false);
 
   // System status
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
@@ -197,30 +209,46 @@ export default function App() {
   const fetchDevices = async () => {
     try {
       const res = await fetch('/api/jarvis/devices');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (data.devices) setDevices(data.devices);
+      if (data.devices) {
+        setDevices(data.devices);
+        saveLocalDevices(data.devices);
+        return;
+      }
     } catch (e) {
-      console.warn('Devices fetch fallback');
+      // Sovereign Offline Enclave fallback for GitHub Pages & Offline APK
+      setDevices(getLocalDevices());
     }
   };
 
   const fetchWorkflows = async () => {
     try {
       const res = await fetch('/api/jarvis/workflows');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (data.workflows) setWorkflows(data.workflows);
+      if (data.workflows) {
+        setWorkflows(data.workflows);
+        saveLocalWorkflows(data.workflows);
+        return;
+      }
     } catch (e) {
-      console.warn('Workflows fetch fallback');
+      setWorkflows(getLocalWorkflows());
     }
   };
 
   const fetchKnowledge = async () => {
     try {
       const res = await fetch('/api/jarvis/knowledge');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (data.documents) setDocuments(data.documents);
+      if (data.documents) {
+        setDocuments(data.documents);
+        saveLocalKnowledge(data.documents);
+        return;
+      }
     } catch (e) {
-      console.warn('Knowledge fetch fallback');
+      setDocuments(getLocalKnowledge());
     }
   };
 
@@ -328,6 +356,10 @@ export default function App() {
         }),
       });
 
+      if (!res.ok) {
+        throw new Error(`Server HTTP ${res.status}`);
+      }
+
       const data = await res.json();
       if (data.plan) {
         setCurrentPlan(data.plan);
@@ -368,8 +400,31 @@ export default function App() {
         setTimeout(() => setOrbStatus('idle'), 2000);
       }
     } catch (err) {
-      console.error('Chat error:', err);
-      setOrbStatus('idle');
+      // Sovereign Offline Enclave Execution (for GitHub Pages static hosting & 100% Offline APK)
+      console.log('[JARVIS] Local Sovereign Enclave processing:', promptText);
+      const offlineResult = executeOfflineDirective(promptText);
+      setCurrentPlan(offlineResult.plan);
+      setOrbStatus('speaking');
+      playJarvisChime();
+
+      const jarvisMsg: ChatMessage = {
+        id: `msg-${Date.now() + 1}`,
+        sender: 'jarvis',
+        text: offlineResult.reply,
+        timestamp: Date.now(),
+        planId: offlineResult.plan.id,
+      };
+
+      setMessages((prev) => [...prev, jarvisMsg]);
+      setDevices(getLocalDevices());
+
+      if (soundActive) {
+        speakText(offlineResult.reply, () => {
+          setOrbStatus('idle');
+        });
+      } else {
+        setTimeout(() => setOrbStatus('idle'), 2000);
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -445,7 +500,7 @@ export default function App() {
     ]);
   };
 
-  // Device actions
+  // Device actions with offline local enclave support
   const handleDeviceAction = async (deviceId: string, action: string, params?: any) => {
     try {
       const res = await fetch('/api/jarvis/devices/action', {
@@ -453,13 +508,101 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceId, action, params }),
       });
-      const data = await res.json();
-      if (data.device) {
-        setDevices((prev) => prev.map((d) => (d.id === deviceId ? data.device : d)));
+      if (res.ok) {
+        const data = await res.json();
+        if (data.device) {
+          setDevices((prev) => {
+            const next = prev.map((d) => (d.id === deviceId ? data.device : d));
+            saveLocalDevices(next);
+            return next;
+          });
+          return;
+        }
       }
     } catch (e) {
-      console.warn('Device action error');
+      console.log('[JARVIS] Applying device action locally (Offline Enclave):', action);
     }
+
+    // Local offline device state updater for GitHub Pages / 100% Offline APK
+    setDevices((prev) => {
+      const next = prev.map((dev) => {
+        if (dev.id !== deviceId) return dev;
+        const updated: ConnectedDevice = { 
+          ...dev, 
+          features: { ...(dev.features || {}) }, 
+          data: { ...(dev.data || {}) } 
+        };
+
+        if (action === 'lock_device') {
+          updated.isLocked = true;
+          updated.data.isLocked = true;
+          if (updated.features) updated.features.screenUnlocked = false;
+        } else if (action === 'unlock_device') {
+          updated.isLocked = false;
+          updated.data.isLocked = false;
+          if (updated.features) updated.features.screenUnlocked = true;
+        } else if (action === 'toggle_flashlight') {
+          if (!updated.features) updated.features = {};
+          updated.features.flashlight = !updated.features.flashlight;
+        } else if (action === 'set_volume') {
+          if (!updated.features) updated.features = {};
+          updated.features.volume = params?.volume ?? 75;
+        } else if (action === 'set_brightness') {
+          if (!updated.features) updated.features = {};
+          updated.features.brightness = params?.brightness ?? 80;
+        } else if (action === 'toggle_dnd') {
+          if (!updated.features) updated.features = {};
+          updated.features.dnd = !updated.features.dnd;
+        } else if (action === 'initiate_call') {
+          if (!updated.features) updated.features = {};
+          updated.features.activeCall = {
+            isActive: true,
+            contactName: params?.contact || 'Tony Stark',
+            phoneNumber: params?.phoneNumber || '+1 (212) 555-0199',
+            direction: 'outgoing',
+            status: 'connected',
+            durationSeconds: 1,
+            timestamp: Date.now(),
+          };
+        } else if (action === 'simulate_incoming_call') {
+          if (!updated.features) updated.features = {};
+          updated.features.activeCall = {
+            isActive: true,
+            contactName: params?.contact || 'Pepper Potts',
+            phoneNumber: params?.phoneNumber || '+1 (212) 555-0144',
+            direction: 'incoming',
+            status: 'ringing',
+            durationSeconds: 0,
+            timestamp: Date.now(),
+          };
+        } else if (action === 'answer_call') {
+          if (updated.features?.activeCall) {
+            updated.features.activeCall.status = 'connected';
+          }
+        } else if (action === 'cut_call') {
+          if (updated.features) {
+            updated.features.activeCall = null;
+          }
+        } else if (action === 'send_message') {
+          if (!updated.features) updated.features = {};
+          if (!updated.features.recentMessages) updated.features.recentMessages = [];
+          updated.features.recentMessages.unshift({
+            id: `msg-${Date.now()}`,
+            app: params?.app || 'whatsapp',
+            sender: 'You (JARVIS)',
+            recipient: params?.recipient || 'Contact',
+            content: params?.content || 'Status nominal.',
+            timestamp: Date.now(),
+            status: 'delivered',
+          });
+        }
+
+        return updated;
+      });
+
+      saveLocalDevices(next);
+      return next;
+    });
   };
 
   const handleScanDevices = async () => {
@@ -612,6 +755,7 @@ export default function App() {
         onOpenPairing={() => setIsMobilePairingOpen(true)}
         onOpenMobileSimulator={() => setIsMobileSimulatorOpen(true)}
         isMobilePaired={isMobilePaired}
+        onOpenOfflineGuide={() => setIsOfflineGuideOpen(true)}
       />
 
       {/* Main View Container */}
@@ -778,6 +922,18 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Sovereign Offline State Floating Indicator */}
+      <OfflineIndicator />
+
+      {/* Publish GitHub Pages & Build Offline APK Guide Modal */}
+      <OfflineGuideModal
+        isOpen={isOfflineGuideOpen}
+        onClose={() => setIsOfflineGuideOpen(false)}
+        onRunTestCall={() => handleSendMessage('Call Tony Stark on my phone')}
+        onRunCutCall={() => handleSendMessage('Cut the ongoing call and disconnect phone line')}
+        onRunTestMessage={() => handleSendMessage('Send message to Pepper Potts on WhatsApp saying: Systems 100% nominal')}
+      />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import path from 'path';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  base: '/Jarvis/', // Important for GitHub Pages project sites
+  base: './', // Universal relative base: works on GitHub Pages (/Jarvis/), Android APK (file:/// & localhost), and local dev
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
