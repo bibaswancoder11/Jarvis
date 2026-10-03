@@ -37,8 +37,6 @@ export const OfflineGuideModal: React.FC<OfflineGuideModalProps> = ({
   const [activeTab, setActiveTab] = useState<'apk' | 'github' | 'telecom'>('apk');
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  if (!isOpen) return null;
-
   const handleCopy = (text: string, index: number) => {
     navigator.clipboard?.writeText(text);
     setCopiedIndex(index);
@@ -50,6 +48,10 @@ export const OfflineGuideModal: React.FC<OfflineGuideModalProps> = ({
 npx @capacitor/cli add android
 npx @capacitor/cli copy android
 cd android && ./gradlew assembleDebug`;
+
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">

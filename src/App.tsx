@@ -44,16 +44,7 @@ import {
   isSoundEnabled 
 } from './utils/audio';
 
-export default function App() {
-  // Check if running on real physical mobile device via QR scan
-  const isMobileClientMode = typeof window !== 'undefined' && window.location.search.includes('mode=mobile_node');
-
-  if (isMobileClientMode) {
-    const params = new URLSearchParams(window.location.search);
-    const sessionCode = params.get('session') || 'JRV-4892';
-    return <MobileNodeView isEmbedded={false} sessionCode={sessionCode} />;
-  }
-
+function JarvisDashboard() {
   const [activeTab, setActiveTab] = useState<'hud' | 'devices' | 'workflows' | 'memory' | 'vision' | 'diagnostics'>('hud');
   const [soundActive, setSoundActive] = useState<boolean>(true);
   const [orbStatus, setOrbStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking' | 'alert'>('idle');
@@ -897,18 +888,20 @@ export default function App() {
       )}
 
       {/* Real Mobile & Web Bluetooth Pairing Modal */}
-      <MobilePairingModal
-        isOpen={isMobilePairingOpen}
-        onClose={() => setIsMobilePairingOpen(false)}
-        onOpenMobileSimulator={() => {
-          setIsMobilePairingOpen(false);
-          setIsMobileSimulatorOpen(true);
-        }}
-        onBluetoothPaired={(btDevice) => {
-          fetchDevices();
-          setIsMobilePairingOpen(false);
-        }}
-      />
+      {isMobilePairingOpen && (
+        <MobilePairingModal
+          isOpen={isMobilePairingOpen}
+          onClose={() => setIsMobilePairingOpen(false)}
+          onOpenMobileSimulator={() => {
+            setIsMobilePairingOpen(false);
+            setIsMobileSimulatorOpen(true);
+          }}
+          onBluetoothPaired={(btDevice) => {
+            fetchDevices();
+            setIsMobilePairingOpen(false);
+          }}
+        />
+      )}
 
       {/* Live Interactive Mobile Phone Deck Simulator Modal */}
       {isMobileSimulatorOpen && (
@@ -927,13 +920,28 @@ export default function App() {
       <OfflineIndicator />
 
       {/* Publish GitHub Pages & Build Offline APK Guide Modal */}
-      <OfflineGuideModal
-        isOpen={isOfflineGuideOpen}
-        onClose={() => setIsOfflineGuideOpen(false)}
-        onRunTestCall={() => handleSendMessage('Call Tony Stark on my phone')}
-        onRunCutCall={() => handleSendMessage('Cut the ongoing call and disconnect phone line')}
-        onRunTestMessage={() => handleSendMessage('Send message to Pepper Potts on WhatsApp saying: Systems 100% nominal')}
-      />
+      {isOfflineGuideOpen && (
+        <OfflineGuideModal
+          isOpen={isOfflineGuideOpen}
+          onClose={() => setIsOfflineGuideOpen(false)}
+          onRunTestCall={() => handleSendMessage('Call Tony Stark on my phone')}
+          onRunCutCall={() => handleSendMessage('Cut the ongoing call and disconnect phone line')}
+          onRunTestMessage={() => handleSendMessage('Send message to Pepper Potts on WhatsApp saying: Systems 100% nominal')}
+        />
+      )}
     </div>
   );
 }
+
+export default function App() {
+  const isMobileClientMode = typeof window !== 'undefined' && window.location.search.includes('mode=mobile_node');
+
+  if (isMobileClientMode) {
+    const params = new URLSearchParams(window.location.search);
+    const sessionCode = params.get('session') || 'JRV-4892';
+    return <MobileNodeView isEmbedded={false} sessionCode={sessionCode} />;
+  }
+
+  return <JarvisDashboard />;
+}
+
