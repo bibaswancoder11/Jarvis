@@ -218,3 +218,25 @@ export interface VisionAnalysisResult {
   recommendedActions: string[];
   timestamp: number;
 }
+
+export interface OfflineLocationData {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  road?: string;
+  locality?: string;
+  city: string;
+  state: string;
+  country: string;
+  formattedAddress: string;
+  confidence: number;
+  distanceToFeatureMeters: number;
+  source: 'offline-spatial-db' | 'online-fallback';
+}
+
+export interface GeoLocationResult {
+  success: boolean;
+  location?: OfflineLocationData;
+  speechText: string;
+  error?: 'permission_denied' | 'position_unavailable' | 'timeout' | 'not_supported' | 'no_database_match';
+}

@@ -12,7 +12,7 @@ app.use(express.json({ limit: "25mb" }));
 
 // Set security & permissions policy headers
 app.use((req, res, next) => {
-  res.setHeader("Permissions-Policy", "bluetooth=(self), camera=*, microphone=*");
+  res.setHeader("Permissions-Policy", "bluetooth=(self), camera=*, microphone=*, geolocation=*");
   next();
 });
 
@@ -1785,6 +1785,46 @@ function generateLocalJarvisPlan(prompt: string) {
   }
 
   const p = prompt.toLowerCase();
+
+  // Location queries ("where am i", "what is my location", "tell me where i am", "where are we", "my location")
+  if (
+    p.includes("where am i") ||
+    p.includes("what is my location") ||
+    p.includes("tell me where i am") ||
+    p.includes("where are we") ||
+    p.includes("my location") ||
+    p.includes("current location") ||
+    p.includes("gps location") ||
+    p.includes("where i am")
+  ) {
+    return {
+      intent: "Hardware Geolocation & Offline Reverse Geocoding",
+      confidence: 0.99,
+      tasks: [
+        {
+          id: `task-${Date.now()}-1`,
+          step: 1,
+          title: "Query Hardware GNSS Geolocation Sensor",
+          tool: "geo_location",
+          parameters: { method: "navigator.geolocation" },
+          status: "completed",
+          requiredSecurityLevel: 0,
+          output: "GPS telemetry acquired with zero remote network egress.",
+        },
+        {
+          id: `task-${Date.now()}-2`,
+          step: 2,
+          title: "Resolve Administrative Hierarchy via Local Spatial Polyline Index",
+          tool: "offline_reverse_geocode",
+          parameters: { database: "offline-spatial-db", source: "OpenStreetMap Polyline Model" },
+          status: "completed",
+          requiredSecurityLevel: 0,
+          output: "Nearest road, locality, city, state, and country resolved 100% offline.",
+        },
+      ],
+      reply: "Scanning device satellite sensors and resolving your offline geographic coordinates, sir.",
+    };
+  }
 
   // Task generation matching intent
   if (p.includes("lockdown") || p.includes("security") || p.includes("lock")) {

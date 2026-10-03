@@ -43,6 +43,7 @@ import {
   setSoundEnabled, 
   isSoundEnabled 
 } from './utils/audio';
+import { isLocationQuery, determineUserLocation } from './utils/offlineGeocoder';
 
 function JarvisDashboard() {
   const [activeTab, setActiveTab] = useState<'hud' | 'devices' | 'workflows' | 'memory' | 'vision' | 'diagnostics'>('hud');
@@ -335,6 +336,92 @@ function JarvisDashboard() {
     };
 
     setMessages((prev) => [...prev, userMsg]);
+
+    // Offline Hardware GNSS & Spatial Reverse-Geocoding Interceptor
+    if (isLocationQuery(promptText)) {
+      setOrbStatus('processing');
+      playJarvisChime();
+
+      try {
+        const geoResult = await determineUserLocation();
+
+        const locPlan: ExecutionPlan = {
+          id: `plan-${Date.now()}`,
+          userPrompt: promptText,
+          intent: 'Hardware Geolocation & Offline Reverse Geocoding',
+          confidence: geoResult.success ? 0.99 : 0.4,
+          status: geoResult.success ? 'completed' : 'failed',
+          createdAt: Date.now(),
+          tasks: [
+            {
+              id: `task-${Date.now()}-1`,
+              step: 1,
+              title: 'Acquire Satellite Coordinates via Browser Geolocation API',
+              tool: 'geo_location',
+              parameters: geoResult.location
+                ? {
+                    latitude: Number(geoResult.location.latitude.toFixed(6)),
+                    longitude: Number(geoResult.location.longitude.toFixed(6)),
+                    accuracyMeters: geoResult.location.accuracy,
+                  }
+                : { error: geoResult.error },
+              status: geoResult.success ? 'completed' : 'failed',
+              requiredSecurityLevel: 0,
+              output: geoResult.success
+                ? `GPS fix locked: ${geoResult.location!.latitude.toFixed(5)}°, ${geoResult.location!.longitude.toFixed(5)}° (Accuracy: ±${geoResult.location!.accuracy}m)`
+                : `Sensor error: ${geoResult.error || 'Failed to acquire satellite lock'}`,
+            },
+            {
+              id: `task-${Date.now()}-2`,
+              step: 2,
+              title: 'Offline Reverse-Geocoding via Local Spatial Vector Database',
+              tool: 'offline_reverse_geocode',
+              parameters: geoResult.location
+                ? {
+                    nearestRoad: geoResult.location.road || 'N/A',
+                    locality: geoResult.location.locality || 'N/A',
+                    city: geoResult.location.city,
+                    state: geoResult.location.state,
+                    country: geoResult.location.country,
+                  }
+                : {},
+              status: geoResult.success ? 'completed' : 'failed',
+              requiredSecurityLevel: 0,
+              output: geoResult.success
+                ? `Spatial match: ${geoResult.location!.formattedAddress} (Distance to feature: ${geoResult.location!.distanceToFeatureMeters}m)`
+                : 'Offline spatial index lookup skipped due to sensor telemetry error.',
+            },
+          ],
+        };
+
+        setCurrentPlan(locPlan);
+        setOrbStatus('speaking');
+
+        const jarvisMsg: ChatMessage = {
+          id: `msg-${Date.now() + 1}`,
+          sender: 'jarvis',
+          text: geoResult.speechText,
+          timestamp: Date.now(),
+          planId: locPlan.id,
+        };
+
+        setMessages((prev) => [...prev, jarvisMsg]);
+
+        if (soundActive) {
+          speakText(geoResult.speechText, () => {
+            setOrbStatus('idle');
+          });
+        } else {
+          setTimeout(() => setOrbStatus('idle'), 2000);
+        }
+      } catch (err: any) {
+        console.warn('Geolocation error:', err);
+        setOrbStatus('idle');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
 
     try {
       const res = await fetch('/api/jarvis/chat', {

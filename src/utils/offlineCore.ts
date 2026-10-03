@@ -301,6 +301,47 @@ export function executeOfflineDirective(prompt: string): { plan: ExecutionPlan; 
   const phone = devices.find((d) => d.id === 'dev-phone-01' || d.type === 'phone');
   const deadbolt = devices.find((d) => d.id === 'dev-lock-01' || d.type === 'smart_lock');
 
+  // 0. Location Inquiries ("where am i", "what is my location", "tell me where i am", "where are we", "my location")
+  const isLocation = p.includes('where am i') || p.includes('what is my location') || 
+                     p.includes('tell me where i am') || p.includes('where are we') || 
+                     p.includes('my location') || p.includes('current location') ||
+                     p.includes('gps location') || p.includes('where i am');
+  if (isLocation) {
+    return {
+      plan: {
+        id: `plan-${Date.now()}`,
+        userPrompt: prompt,
+        intent: 'Hardware Geolocation & Offline Reverse Geocoding',
+        confidence: 0.99,
+        status: 'completed',
+        createdAt: Date.now(),
+        tasks: [
+          {
+            id: `task-${Date.now()}-1`,
+            step: 1,
+            title: 'Query Device Hardware GNSS Sensor via Navigator Geolocation',
+            tool: 'geo_location',
+            parameters: { method: 'navigator.geolocation' },
+            status: 'completed',
+            requiredSecurityLevel: 0,
+            output: 'Hardware satellite telemetry acquired with zero remote network egress.',
+          },
+          {
+            id: `task-${Date.now()}-2`,
+            step: 2,
+            title: 'Resolve Nearest Road & Locality via Bundled Spatial Vector Polyline Index',
+            tool: 'offline_reverse_geocode',
+            parameters: { database: 'offline-spatial-db', engine: 'Haversine Segment Tree' },
+            status: 'completed',
+            requiredSecurityLevel: 0,
+            output: 'Offline address resolution complete with GPS accuracy tolerance calibrated.',
+          },
+        ],
+      },
+      reply: 'Scanning device satellite sensors and resolving your offline geographic coordinates, sir.',
+    };
+  }
+
   // 1. Cut Ongoing Call / Hang up
   const isCutCall = p.includes('cut call') || p.includes('cut ongoing call') || p.includes('hang up') || 
                     p.includes('end call') || p.includes('disconnect call') || p.includes('reject call') || 

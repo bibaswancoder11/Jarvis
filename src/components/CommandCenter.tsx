@@ -67,6 +67,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
   };
 
   const quickDirectives = [
+    { label: 'Where Am I?', prompt: 'Where am I?', icon: '📍' },
     { label: 'Call Tony Stark', prompt: 'Call Tony Stark on my Pixel phone', icon: '📞' },
     { label: 'Cut Ongoing Call', prompt: 'Cut the ongoing call and disconnect phone line', icon: '🔴' },
     { label: 'Message on WhatsApp', prompt: 'Send message to Pepper Potts on WhatsApp saying: Lab systems are 100% nominal', icon: '💬' },
