@@ -66,7 +66,7 @@ export const SystemDiagnosticsPanel: React.FC<SystemDiagnosticsPanelProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Local 8B Q4_K
+            Local 8B (Fast)
           </button>
           <button
             onClick={() => {
@@ -79,20 +79,7 @@ export const SystemDiagnosticsPanel: React.FC<SystemDiagnosticsPanelProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Local 14B Heavy
-          </button>
-          <button
-            onClick={() => {
-              playTechBeep(1300, 0.02);
-              onSelectMode('hybrid_gemini');
-            }}
-            className={`px-3.5 py-1.5 rounded-xl transition-all ${
-              systemStatus.modelMode === 'hybrid_gemini'
-                ? 'bg-cyan-500 text-slate-950 font-bold shadow-[0_0_15px_rgba(6,182,212,0.4)]'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Gemini 3.7 Hybrid
+            Local 14B (Heavy)
           </button>
         </div>
       </div>

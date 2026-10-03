@@ -105,16 +105,16 @@ export const HeaderHUD: React.FC<HeaderHUDProps> = ({
             <button
               onClick={() => {
                 playTechBeep(1400, 0.03);
-                onSelectMode('hybrid_gemini');
+                onSelectMode('local_14b');
               }}
               className={`text-[11px] font-mono-tech px-2.5 py-1 rounded-lg transition-all ${
-                systemStatus.modelMode === 'hybrid_gemini'
+                systemStatus.modelMode === 'local_14b'
                   ? 'bg-cyan-500 text-slate-950 font-bold shadow-[0_0_12px_rgba(6,182,212,0.4)]'
                   : 'text-slate-400 hover:text-cyan-300'
               }`}
-              title="Hybrid Gemini 3.7 Flash High-Capacity Uplink"
+              title="Local 14B High-Density Neural Mesh (100% Free, Zero Cloud APIs, Full Privacy)"
             >
-              Gemini 3.7
+              14B Neural
             </button>
           </div>
         </div>

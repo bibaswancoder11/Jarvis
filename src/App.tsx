@@ -62,7 +62,7 @@ function JarvisDashboard() {
   // System status
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     online: true,
-    modelMode: 'hybrid_gemini',
+    modelMode: 'local_8b',
     uptimeSeconds: 1420,
     cpuLoad: 24,
     npuLoad: 42,
