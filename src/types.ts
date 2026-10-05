@@ -45,9 +45,18 @@ export interface PhoneMessage {
   app: 'signal' | 'whatsapp' | 'telegram' | 'sms';
   sender: string;
   recipient: string;
+  phoneNumber?: string;
   content: string;
   timestamp: number;
   status: 'sent' | 'delivered' | 'read';
+}
+
+export interface JarvisContact {
+  id: string;
+  name: string;
+  phoneNumber: string; // E.164 international format e.g. +12125550144
+  role?: string;
+  isFavorite?: boolean;
 }
 
 export interface DeviceFeatures {
@@ -103,6 +112,8 @@ export interface ConnectedDevice {
   installedApps?: InstalledApp[];
   features?: DeviceFeatures;
   isRealDevice?: boolean;
+  isHostDevice?: boolean;
+  hostPlatform?: string;
   realSessionId?: string;
   pairedAt?: number;
   data: {

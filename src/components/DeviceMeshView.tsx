@@ -32,9 +32,22 @@ import {
   PhoneCall,
   PhoneOff,
   MessageSquare,
-  Send
+  Send,
+  Eye,
+  Battery,
+  BatteryCharging,
+  UserPlus,
+  Users,
+  Check
 } from 'lucide-react';
-import { ConnectedDevice, InstalledApp } from '../types';
+import { ConnectedDevice, InstalledApp, JarvisContact } from '../types';
+import { 
+  getSavedContacts, 
+  saveContactToDirectory, 
+  cleanPhoneNumberForWhatsApp, 
+  resolveRecipientContact, 
+  DEFAULT_JARVIS_CONTACTS 
+} from '../utils/contacts';
 import { 
   playTechBeep, 
   playAuthSuccessSound, 
@@ -42,6 +55,16 @@ import {
   playDeviceLockSound, 
   playPhoneRingSound 
 } from '../utils/audio';
+import {
+  toggleHardwareTorch,
+  vibrateMobileDevice,
+  queryHardwareBattery,
+  toggleScreenWakeLock,
+  isWakeLockActive,
+  dialCellularCallOnPhone,
+  dispatchNativeMessageOnPhone,
+  getHostMobilePlatformName
+} from '../utils/mobileHardware';
 
 interface DeviceMeshViewProps {
   devices: ConnectedDevice[];
@@ -67,9 +90,128 @@ export const DeviceMeshView: React.FC<DeviceMeshViewProps> = ({
   isMobilePaired = false,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
+  const [targetCategory, setTargetCategory] = useState<'all' | 'host' | 'paired'>('all');
+  const [isTorchActive, setIsTorchActive] = useState(false);
+  const [wakeLockActive, setWakeLockActive] = useState(false);
+  const [realBattery, setRealBattery] = useState<{ level: number; charging: boolean } | null>(null);
+  const [dialNumberInput, setDialNumberInput] = useState('+1 (212) 555-0199');
+  const [messageTextInput, setMessageTextInput] = useState('JARVIS status nominal.');
+  const [messageRecipientInput, setMessageRecipientInput] = useState('Pepper Potts');
+  const [messagePhoneNumber, setMessagePhoneNumber] = useState('+12125550144');
+  const [contactsList, setContactsList] = useState<JarvisContact[]>([]);
+  const [selectedContactId, setSelectedContactId] = useState<string>('contact-pepper');
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [newContactName, setNewContactName] = useState('');
+  const [newContactPhone, setNewContactPhone] = useState('');
+  const [newContactRole, setNewContactRole] = useState('');
+
   const [expandedDeviceApps, setExpandedDeviceApps] = useState<Record<string, boolean>>({
     'dev-phone-01': true, // Auto-expand phone apps for high visibility
   });
+
+  // Query actual hardware sensors & load contact directory on client mount
+  React.useEffect(() => {
+    const contacts = getSavedContacts();
+    setContactsList(contacts);
+    if (contacts.length > 0) {
+      setSelectedContactId(contacts[0].id);
+      setMessageRecipientInput(contacts[0].name);
+      setMessagePhoneNumber(contacts[0].phoneNumber);
+      setDialNumberInput(contacts[0].phoneNumber);
+    }
+    queryHardwareBattery().then((b) => {
+      if (b) setRealBattery(b);
+    });
+    setWakeLockActive(isWakeLockActive());
+  }, []);
+
+  const handleSelectContact = (contactId: string) => {
+    playTechBeep(1200, 0.02);
+    setSelectedContactId(contactId);
+    if (contactId === 'custom') {
+      return;
+    }
+    const found = contactsList.find((c) => c.id === contactId);
+    if (found) {
+      setMessageRecipientInput(found.name);
+      setMessagePhoneNumber(found.phoneNumber);
+      setDialNumberInput(found.phoneNumber);
+    }
+  };
+
+  const handleAddNewContact = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newContactName.trim() || !newContactPhone.trim()) return;
+    playAuthSuccessSound();
+    const created: JarvisContact = {
+      id: `contact-${Date.now()}`,
+      name: newContactName.trim(),
+      phoneNumber: newContactPhone.trim(),
+      role: newContactRole.trim() || 'Personal Contact',
+      isFavorite: true,
+    };
+    const updated = saveContactToDirectory(created);
+    setContactsList(updated);
+    setSelectedContactId(created.id);
+    setMessageRecipientInput(created.name);
+    setMessagePhoneNumber(created.phoneNumber);
+    setDialNumberInput(created.phoneNumber);
+    setNewContactName('');
+    setNewContactPhone('');
+    setNewContactRole('');
+    setIsContactModalOpen(false);
+  };
+
+  const handleToggleTorch = async () => {
+    playTechBeep(1400, 0.03);
+    const nextState = await toggleHardwareTorch(!isTorchActive);
+    setIsTorchActive(nextState);
+    onDeviceAction('dev-phone-01', 'toggle_flashlight', { state: nextState });
+  };
+
+  const handleToggleWakeLock = async () => {
+    playTechBeep(1300, 0.03);
+    const active = await toggleScreenWakeLock(!wakeLockActive);
+    setWakeLockActive(active);
+  };
+
+  const handleVibratePhone = () => {
+    playTechBeep(1200, 0.04);
+    vibrateMobileDevice([300, 150, 300, 150, 600]);
+  };
+
+  const handleRingHostPhone = () => {
+    playPhoneRingSound();
+    vibrateMobileDevice([400, 200, 400, 200, 800]);
+    setRingingDeviceId('dev-phone-01');
+    onDeviceAction('dev-phone-01', 'ring_phone');
+    setTimeout(() => setRingingDeviceId(null), 3000);
+  };
+
+  const handleHostDialCall = () => {
+    playTechBeep(1500, 0.03);
+    dialCellularCallOnPhone(dialNumberInput);
+    onDeviceAction('dev-phone-01', 'initiate_call', {
+      phoneNumber: dialNumberInput,
+      contact: messageRecipientInput || 'Cellular Outgoing',
+    });
+  };
+
+  const handleHostSendMessage = (app: 'whatsapp' | 'sms') => {
+    playTechBeep(1400, 0.03);
+    dispatchNativeMessageOnPhone(
+      app, 
+      messageRecipientInput, 
+      messageTextInput,
+      messagePhoneNumber
+    );
+    onDeviceAction('dev-phone-01', 'send_message', {
+      app,
+      recipient: messageRecipientInput,
+      phoneNumber: messagePhoneNumber,
+      content: messageTextInput,
+    });
+  };
 
   // Modal for unlocking device or app with specified lock
   const [unlockModal, setUnlockModal] = useState<{
@@ -106,9 +248,18 @@ export const DeviceMeshView: React.FC<DeviceMeshViewProps> = ({
     }
   };
 
+  const hostDevice = devices.find((d) => d.isHostDevice || d.id === 'dev-phone-01');
+  const pairedDevices = devices.filter((d) => !d.isHostDevice && d.id !== 'dev-phone-01');
+
+  const categoryFiltered = targetCategory === 'host'
+    ? devices.filter((d) => d.isHostDevice || d.id === 'dev-phone-01')
+    : targetCategory === 'paired'
+    ? devices.filter((d) => !d.isHostDevice && d.id !== 'dev-phone-01')
+    : devices;
+
   const filteredDevices = filterType === 'all' 
-    ? devices 
-    : devices.filter((d) => d.type === filterType);
+    ? categoryFiltered 
+    : categoryFiltered.filter((d) => d.type === filterType);
 
   const toggleAppsExpand = (deviceId: string) => {
     playTechBeep(1100, 0.02);
@@ -285,17 +436,273 @@ export const DeviceMeshView: React.FC<DeviceMeshViewProps> = ({
           <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
           <span className="text-cyan-100">
             <strong className="text-cyan-300 font-semibold">Hands-Free Device Control:</strong> Ask JARVIS in chat or voice:
-            <em className="text-slate-300 ml-1">"Unlock my phone with PIN 4892"</em> • 
-            <em className="text-slate-300 ml-1">"Unlock Signal with code 7701"</em> • 
-            <em className="text-slate-300 ml-1">"Ring my phone"</em> • 
-            <em className="text-slate-300 ml-1">"Turn on flashlight"</em>
+            <em className="text-slate-300 ml-1">"Turn on flashlight"</em> • 
+            <em className="text-slate-300 ml-1">"Ring this phone"</em> • 
+            <em className="text-slate-300 ml-1">"Lock paired deadbolt"</em> • 
+            <em className="text-slate-300 ml-1">"Where am I?"</em>
           </span>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-cyan-300 font-mono-tech">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>AUTONOMY: FULL PERMISSION</span>
+          <span>AUTONOMY: LOCAL & PAIRED READY</span>
         </div>
       </div>
+
+      {/* Target Category Selector: This Phone vs Paired Devices */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-1.5 rounded-2xl bg-white/[0.03] border border-white/10 text-xs font-sans">
+        <button
+          onClick={() => {
+            playTechBeep(1200, 0.02);
+            setTargetCategory('host');
+          }}
+          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold uppercase transition-all ${
+            targetCategory === 'host'
+              ? 'bg-cyan-500 text-slate-950 shadow-[0_0_20px_rgba(6,182,212,0.4)]'
+              : 'text-slate-300 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Smartphone className="w-4 h-4" />
+          <span>OPERATE THIS PHONE (DOWNLOADED HOST)</span>
+        </button>
+
+        <button
+          onClick={() => {
+            playTechBeep(1200, 0.02);
+            setTargetCategory('paired');
+          }}
+          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold uppercase transition-all ${
+            targetCategory === 'paired'
+              ? 'bg-indigo-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)]'
+              : 'text-slate-300 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Bluetooth className="w-4 h-4 text-cyan-300" />
+          <span>OPERATE PAIRED DEVICES ({pairedDevices.length})</span>
+        </button>
+
+        <button
+          onClick={() => {
+            playTechBeep(1200, 0.02);
+            setTargetCategory('all');
+          }}
+          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold uppercase transition-all ${
+            targetCategory === 'all'
+              ? 'bg-white/15 text-white border border-white/20'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Radio className="w-4 h-4 text-slate-400" />
+          <span>ALL NODES ({devices.length})</span>
+        </button>
+      </div>
+
+      {/* Dedicated Host Mobile Phone Command Deck */}
+      {(targetCategory === 'host' || targetCategory === 'all') && hostDevice && (
+        <div className="p-5 rounded-3xl bg-cyan-950/20 backdrop-blur-xl border border-cyan-400/30 shadow-[0_0_30px_rgba(6,182,212,0.15)] space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-white/10">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-400/30 text-cyan-300">
+                <Smartphone className="w-5 h-5 text-cyan-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-100 font-sans tracking-wide">
+                    {hostDevice.name}
+                  </h3>
+                  <span className="text-[9px] uppercase font-mono-tech px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/50 text-cyan-200 font-bold flex items-center gap-1 shadow-[0_0_10px_rgba(6,182,212,0.3)]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                    <span>THIS MOBILE PHONE (HOST)</span>
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-sans mt-0.5">
+                  Direct hardware operation: trigger flashlight torch, haptic vibration, phone calls, WhatsApp messages, and screen wake lock on this phone.
+                </p>
+              </div>
+            </div>
+
+            {/* Hardware Status Badges */}
+            <div className="flex items-center gap-2 text-xs font-mono-tech">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-emerald-300">
+                {realBattery?.charging ? <BatteryCharging className="w-3.5 h-3.5 text-emerald-400" /> : <Battery className="w-3.5 h-3.5 text-emerald-400" />}
+                <span>{realBattery?.level ?? hostDevice.batteryPercent}% BATTERY</span>
+              </div>
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-cyan-300">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>NATIVE API: READY</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Hardware Action Matrix */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-sans">
+            {/* Flashlight / Torch Toggle */}
+            <button
+              onClick={handleToggleTorch}
+              className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center gap-2 transition-all active:scale-95 ${
+                isTorchActive || hostDevice.features?.flashlight
+                  ? 'bg-amber-500 text-slate-950 font-bold border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.5)]'
+                  : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200 hover:text-amber-300'
+              }`}
+            >
+              <Zap className="w-5 h-5" />
+              <span className="font-semibold">
+                Flashlight: {isTorchActive || hostDevice.features?.flashlight ? 'ON' : 'OFF'}
+              </span>
+            </button>
+
+            {/* Haptic Vibration */}
+            <button
+              onClick={handleVibratePhone}
+              className="p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-cyan-400/40 text-slate-200 hover:text-cyan-300 flex flex-col items-center justify-center gap-2 transition-all active:scale-95"
+            >
+              <Activity className="w-5 h-5 text-cyan-400" />
+              <span className="font-semibold">Vibrate Motor</span>
+            </button>
+
+            {/* Audible Locator Siren */}
+            <button
+              onClick={handleRingHostPhone}
+              className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center gap-2 transition-all active:scale-95 ${
+                ringingDeviceId === hostDevice.id
+                  ? 'bg-cyan-500 text-slate-950 font-bold border-cyan-400 animate-bounce shadow-[0_0_20px_rgba(6,182,212,0.5)]'
+                  : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200 hover:text-cyan-300'
+              }`}
+            >
+              <BellRing className="w-5 h-5 text-cyan-400" />
+              <span className="font-semibold">{ringingDeviceId === hostDevice.id ? 'Ringing Phone...' : 'Ring This Phone'}</span>
+            </button>
+
+            {/* Screen Wake Lock */}
+            <button
+              onClick={handleToggleWakeLock}
+              className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center gap-2 transition-all active:scale-95 ${
+                wakeLockActive
+                  ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-200'
+                  : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
+              }`}
+            >
+              <Eye className="w-5 h-5 text-emerald-400" />
+              <span className="font-semibold">Screen Wake: {wakeLockActive ? 'LOCKED ON' : 'AUTO'}</span>
+            </button>
+          </div>
+
+          {/* Cellular Dialer & Quick Messenger on This Phone */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            {/* Cellular Phone Dialer */}
+            <div className="p-3.5 rounded-2xl bg-black/40 border border-white/10 space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-sans font-semibold text-slate-300">
+                <span className="flex items-center gap-1.5 text-cyan-300">
+                  <Phone className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>CELLULAR TELEPHONY (TEL:)</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono-tech">DIRECT CALL</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={dialNumberInput}
+                  onChange={(e) => setDialNumberInput(e.target.value)}
+                  placeholder="Enter phone number..."
+                  className="flex-1 bg-white/5 border border-white/10 focus:border-cyan-400/50 rounded-xl px-3 py-2 text-xs font-mono-tech text-slate-100 placeholder-slate-500 focus:outline-none"
+                />
+                <button
+                  onClick={handleHostDialCall}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs font-sans flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                >
+                  <PhoneCall className="w-3.5 h-3.5" />
+                  <span>Call</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Direct Instant Messaging (WhatsApp / SMS) with Direct Contact Lock */}
+            <div className="p-3.5 rounded-2xl bg-black/40 border border-white/10 space-y-2.5">
+              <div className="flex items-center justify-between text-[11px] font-sans font-semibold text-slate-300">
+                <span className="flex items-center gap-1.5 text-emerald-300">
+                  <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>DIRECT WHATSAPP & SMS DISPATCH</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playTechBeep(1200, 0.02);
+                    setIsContactModalOpen(true);
+                  }}
+                  className="flex items-center gap-1 text-[10px] text-cyan-400 hover:text-cyan-200 transition-colors font-mono-tech"
+                >
+                  <UserPlus className="w-3 h-3" />
+                  <span>+ ADD CONTACT</span>
+                </button>
+              </div>
+
+              {/* Target Contact Selector & Direct Phone Number */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-sans">
+                <div>
+                  <label className="text-[10px] text-slate-400 font-mono-tech block mb-0.5">TARGET CONTACT:</label>
+                  <select
+                    value={selectedContactId}
+                    onChange={(e) => handleSelectContact(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 focus:border-cyan-400/50 rounded-xl px-2.5 py-1.5 text-xs text-slate-100 font-sans focus:outline-none"
+                  >
+                    {contactsList.map((c) => (
+                      <option key={c.id} value={c.id} className="bg-slate-900 text-slate-100">
+                        {c.name} ({c.phoneNumber})
+                      </option>
+                    ))}
+                    <option value="custom" className="bg-slate-900 text-slate-100">
+                      + Custom Direct Number
+                    </option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-slate-400 font-mono-tech block mb-0.5">DIRECT PHONE NUMBER:</label>
+                  <input
+                    type="text"
+                    value={messagePhoneNumber}
+                    onChange={(e) => {
+                      setMessagePhoneNumber(e.target.value);
+                      setSelectedContactId('custom');
+                    }}
+                    placeholder="+12125550144 or 9876543210"
+                    className="w-full bg-white/5 border border-white/10 focus:border-cyan-400/50 rounded-xl px-2.5 py-1.5 text-xs font-mono-tech text-emerald-300 placeholder-slate-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Message Payload & Direct Send Buttons */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={messageTextInput}
+                  onChange={(e) => setMessageTextInput(e.target.value)}
+                  placeholder="Enter message text for WhatsApp..."
+                  className="flex-1 bg-white/5 border border-white/10 focus:border-emerald-400/50 rounded-xl px-3 py-2 text-xs font-mono-tech text-slate-100 placeholder-slate-500 focus:outline-none"
+                />
+                <button
+                  onClick={() => handleHostSendMessage('whatsapp')}
+                  className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs font-sans flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(16,185,129,0.4)] active:scale-95 shrink-0"
+                  title="Directly opens WhatsApp chat with this exact contact"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>Direct WhatsApp</span>
+                </button>
+                <button
+                  onClick={() => handleHostSendMessage('sms')}
+                  className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs font-sans flex items-center gap-1 transition-all shadow-md active:scale-95 shrink-0"
+                  title="Open in SMS"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>SMS</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 font-sans">
+                <span className="text-emerald-400 font-semibold">Direct Target Lock:</span> Message opens directly inside <strong className="text-slate-200">{messageRecipientInput}</strong>'s conversation without asking you to choose who to share with.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Discovered Beacons Banner */}
       {discoveredDevices.length > 0 && (
@@ -381,13 +788,23 @@ export const DeviceMeshView: React.FC<DeviceMeshViewProps> = ({
                       <Icon className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="text-xs font-bold text-slate-100 font-sans tracking-wide">
-                        {dev.name}
-                      </h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-bold text-slate-100 font-sans tracking-wide">
+                          {dev.name}
+                        </h3>
+                        {dev.isHostDevice && (
+                          <span className="text-[9px] uppercase font-mono-tech px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/50 text-cyan-200 font-bold flex items-center gap-1 shadow-[0_0_10px_rgba(6,182,212,0.3)]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                            <span>THIS DEVICE (HOST)</span>
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2 mt-0.5 text-[11px] font-mono-tech text-slate-400">
                         <span className="text-cyan-400">{dev.protocol}</span>
                         <span>•</span>
                         <span>{dev.address}</span>
+                        <span>•</span>
+                        <span className="text-slate-400">{dev.isHostDevice ? 'Host Hardware Direct' : 'Paired via Mesh'}</span>
                       </div>
                     </div>
                   </div>
@@ -400,7 +817,7 @@ export const DeviceMeshView: React.FC<DeviceMeshViewProps> = ({
                       ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300 animate-pulse'
                       : 'bg-white/5 border-white/10 text-slate-400'
                   }`}>
-                    {dev.status}
+                    {dev.isHostDevice ? 'HOST ONLINE' : dev.status}
                   </span>
                 </div>
 
@@ -941,6 +1358,81 @@ export const DeviceMeshView: React.FC<DeviceMeshViewProps> = ({
                 <span>Validate & Unlock</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Direct Contact Modal */}
+      {isContactModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-slate-900/95 border border-cyan-400/30 rounded-3xl p-6 shadow-[0_0_50px_rgba(6,182,212,0.25)] space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-cyan-300 font-sans font-bold text-sm">
+                <UserPlus className="w-4 h-4 text-cyan-400" />
+                <span>ADD DIRECT WHATSAPP CONTACT</span>
+              </div>
+              <button
+                onClick={() => setIsContactModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 font-sans">
+              Save contacts with country code so JARVIS sends WhatsApp messages directly to their chat thread without asking you to choose who to share with.
+            </p>
+            <form onSubmit={handleAddNewContact} className="space-y-3 font-sans text-xs">
+              <div>
+                <label className="text-[11px] text-slate-300 font-semibold block mb-1">Contact Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. John Doe, Mom, Office Lead"
+                  value={newContactName}
+                  onChange={(e) => setNewContactName(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-300 font-semibold block mb-1">
+                  WhatsApp Phone Number (with Country Code)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. +1 212 555 0199 or +91 98765 43210"
+                  value={newContactPhone}
+                  onChange={(e) => setNewContactPhone(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 font-mono-tech text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-300 font-semibold block mb-1">Role / Relationship (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Executive, Family, Colleague"
+                  value={newContactRole}
+                  onChange={(e) => setNewContactRole(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsContactModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Save Contact</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

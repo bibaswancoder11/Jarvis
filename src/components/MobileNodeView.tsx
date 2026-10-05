@@ -43,6 +43,7 @@ import {
   speakText 
 } from '../utils/audio';
 import { PhoneCallState, PhoneMessage } from '../types';
+import { resolveRecipientContact } from '../utils/contacts';
 
 interface MobileNodeViewProps {
   isEmbedded?: boolean;
@@ -1043,11 +1044,15 @@ export const MobileNodeView: React.FC<MobileNodeViewProps> = ({
                       onClick={() => {
                         if (!composerText.trim()) return;
                         const targetAppType = activeApp === 'app-signal' ? 'signal' : activeApp === 'app-whatsapp' ? 'whatsapp' : 'telegram';
+                        const resolved = resolveRecipientContact(composerRecipient);
+                        const finalRecipient = resolved.isResolved ? resolved.name : composerRecipient;
+                        const finalPhone = resolved.phoneNumber;
                         const newMsg: PhoneMessage = {
                           id: `msg-${Date.now()}`,
                           app: targetAppType,
                           sender: 'You (JARVIS)',
-                          recipient: composerRecipient,
+                          recipient: finalRecipient,
+                          phoneNumber: finalPhone,
                           content: composerText.trim(),
                           timestamp: Date.now(),
                           status: 'delivered',
@@ -1061,7 +1066,12 @@ export const MobileNodeView: React.FC<MobileNodeViewProps> = ({
                           body: JSON.stringify({
                             deviceId: 'dev-phone-01',
                             action: 'send_message',
-                            params: { app: targetAppType, recipient: composerRecipient, content: newMsg.content },
+                            params: { 
+                              app: targetAppType, 
+                              recipient: finalRecipient, 
+                              phoneNumber: finalPhone,
+                              content: newMsg.content 
+                            },
                           }),
                         });
                       }}

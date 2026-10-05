@@ -172,12 +172,14 @@ let connectedDevices: Array<any> = [
   },
   {
     id: "dev-phone-01",
-    name: "Pixel 9 Pro Mobile Unit",
+    name: "Mobile Phone (This Device / Pixel Unit)",
     type: "phone",
-    protocol: "Wi-Fi 6E",
-    address: "192.168.1.115",
+    protocol: "Local Bus",
+    address: "127.0.0.1 (Local Host)",
     status: "connected",
-    batteryPercent: 76,
+    isHostDevice: true,
+    hostPlatform: "Mobile Host Unit (This Device)",
+    batteryPercent: 82,
     signalStrengthDbm: -50,
     requiredSecurityLevel: 1,
     lastPingMs: 9,
@@ -1600,12 +1602,21 @@ function executeJarvisDeviceFunction(prompt: string) {
     else if (p.includes("sms") || p.includes("text")) chosenApp = 'sms';
 
     let recipient = "Dr. Bruce Banner";
-    if (p.includes("pepper")) recipient = "Pepper Potts";
-    else if (p.includes("tony")) recipient = "Tony Stark";
-    else if (p.includes("rhodey")) recipient = "Col. James Rhodes";
-    else {
+    let phoneNumber = "+16175550182";
+    if (p.includes("pepper")) {
+      recipient = "Pepper Potts";
+      phoneNumber = "+12125550144";
+    } else if (p.includes("tony")) {
+      recipient = "Tony Stark";
+      phoneNumber = "+12125550199";
+    } else if (p.includes("rhodey")) {
+      recipient = "Col. James Rhodes";
+      phoneNumber = "+17035550177";
+    } else {
       const match = p.match(/(?:to|message)\s+([a-zA-Z\s]+?)(?:\s+saying|\s+that|\s*:|$)/i);
       if (match && match[1]) recipient = match[1].trim();
+      const phoneMatch = p.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+?\d{10,15}/);
+      if (phoneMatch) phoneNumber = phoneMatch[0];
     }
 
     let messageContent = "Synchronized status package nominal.";
@@ -1626,6 +1637,7 @@ function executeJarvisDeviceFunction(prompt: string) {
       app: chosenApp,
       sender: "You (JARVIS)",
       recipient,
+      phoneNumber,
       content: messageContent,
       timestamp: Date.now(),
       status: "delivered" as const,
@@ -1638,27 +1650,27 @@ function executeJarvisDeviceFunction(prompt: string) {
     broadcastSSE("device_action", {
       deviceId: phone.id,
       action: "send_message",
-      params: { app: chosenApp, recipient, content: messageContent },
+      params: { app: chosenApp, recipient, phoneNumber, content: messageContent },
       device: phone,
     });
     broadcastSSE("devices_updated", { devices: connectedDevices });
 
     return {
-      intent: `Dispatch Encrypted Message via ${appNameMap[chosenApp]} to ${recipient}`,
+      intent: `Dispatch Direct Message via ${appNameMap[chosenApp]} to ${recipient} (${phoneNumber})`,
       confidence: 0.99,
       tasks: [
         {
           id: `task-${Date.now()}-1`,
           step: 1,
-          title: `Authenticate ${appNameMap[chosenApp]} Sandbox & Dispatch Payload`,
+          title: `Authenticate ${appNameMap[chosenApp]} Sandbox & Dispatch Direct Payload`,
           tool: "device_control",
-          parameters: { deviceId: phone.id, action: "send_message", app: chosenApp, recipient, content: messageContent },
+          parameters: { deviceId: phone.id, action: "send_message", app: chosenApp, recipient, phoneNumber, content: messageContent },
           status: "completed",
           requiredSecurityLevel: 1,
-          output: `Payload dispatched via ${appNameMap[chosenApp]}. Status: Delivered.`,
+          output: `Direct payload configured for ${recipient} (${phoneNumber}) via ${appNameMap[chosenApp]}.`,
         },
       ],
-      reply: `Message transmitted to ${recipient} via ${appNameMap[chosenApp]}: "${messageContent}", sir. Delivery confirmed.`,
+      reply: `Direct message loaded for ${recipient} (${phoneNumber}) via ${appNameMap[chosenApp]}: "${messageContent}", sir. Direct conversation loaded without contact selection.`,
     };
   }
   const isDeadboltUnlock = (p.includes("unlock") || p.includes("disengage") || p.includes("open")) && 

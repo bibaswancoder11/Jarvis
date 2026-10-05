@@ -44,6 +44,17 @@ import {
   isSoundEnabled 
 } from './utils/audio';
 import { isLocationQuery, determineUserLocation } from './utils/offlineGeocoder';
+import {
+  isRunningOnMobilePhone,
+  getHostMobilePlatformName,
+  toggleHardwareTorch,
+  vibrateMobileDevice,
+  cancelMobileVibration,
+  queryHardwareBattery,
+  dialCellularCallOnPhone,
+  dispatchNativeMessageOnPhone,
+  toggleScreenWakeLock,
+} from './utils/mobileHardware';
 
 function JarvisDashboard() {
   const [activeTab, setActiveTab] = useState<'hud' | 'devices' | 'workflows' | 'memory' | 'vision' | 'diagnostics'>('hud');
@@ -103,6 +114,29 @@ function JarvisDashboard() {
     fetchDevices();
     fetchWorkflows();
     fetchKnowledge();
+
+    // Query hardware battery telemetry if running directly on phone
+    queryHardwareBattery().then((batt) => {
+      if (batt) {
+        setDevices((prev) =>
+          prev.map((d) =>
+            d.id === 'dev-phone-01'
+              ? {
+                  ...d,
+                  batteryPercent: batt.level,
+                  name: `Mobile Phone (${getHostMobilePlatformName()})`,
+                  isHostDevice: true,
+                  hostPlatform: getHostMobilePlatformName(),
+                  data: {
+                    ...d.data,
+                    charging: batt.charging,
+                  },
+                }
+              : d
+          )
+        );
+      }
+    });
 
     const timer = setInterval(() => {
       setSystemStatus((prev) => ({
@@ -374,22 +408,26 @@ function JarvisDashboard() {
             {
               id: `task-${Date.now()}-2`,
               step: 2,
-              title: 'Offline Reverse-Geocoding via Local Spatial Vector Database',
-              tool: 'offline_reverse_geocode',
+              title: geoResult.location?.road || geoResult.location?.city
+                ? 'Online Background Search: Road, City, State & Country'
+                : 'Offline Coordinate Mode: Return Lat & Long Only',
+              tool: 'location_search',
               parameters: geoResult.location
                 ? {
                     nearestRoad: geoResult.location.road || 'N/A',
                     locality: geoResult.location.locality || 'N/A',
-                    city: geoResult.location.city,
-                    state: geoResult.location.state,
-                    country: geoResult.location.country,
+                    city: geoResult.location.city || 'N/A',
+                    state: geoResult.location.state || 'N/A',
+                    country: geoResult.location.country || 'N/A',
                   }
                 : {},
               status: geoResult.success ? 'completed' : 'failed',
               requiredSecurityLevel: 0,
               output: geoResult.success
-                ? `Spatial match: ${geoResult.location!.formattedAddress} (Distance to feature: ${geoResult.location!.distanceToFeatureMeters}m)`
-                : 'Offline spatial index lookup skipped due to sensor telemetry error.',
+                ? geoResult.location?.road || geoResult.location?.city
+                  ? `Location resolved: ${geoResult.location!.formattedAddress}`
+                  : `Internet connection off: returning coordinates only (Lat: ${geoResult.location!.latitude.toFixed(5)}°, Lon: ${geoResult.location!.longitude.toFixed(5)}°)`
+                : 'Sensor telemetry error.',
             },
           ],
         };
@@ -469,6 +507,33 @@ function JarvisDashboard() {
       setMessages((prev) => [...prev, jarvisMsg]);
       fetchDevices(); // Immediately sync device lock & feature states
 
+      // Execute physical hardware actuation if directive targeted the host mobile phone
+      const executedTasks = data?.plan?.tasks || [];
+      const phoneTask = executedTasks.find(
+        (t: ExecutionTask) => t.tool === 'device_control' && (t.parameters?.deviceId === 'dev-phone-01' || !t.parameters?.deviceId)
+      );
+      if (phoneTask) {
+        const act = phoneTask.parameters?.action;
+        if (act === 'toggle_flashlight') {
+          toggleHardwareTorch(phoneTask.parameters?.state);
+        } else if (act === 'ring_phone') {
+          vibrateMobileDevice([400, 200, 400, 200, 800]);
+        } else if (act === 'cut_call') {
+          cancelMobileVibration();
+        } else if (act === 'initiate_call' && phoneTask.parameters?.phoneNumber) {
+          dialCellularCallOnPhone(phoneTask.parameters.phoneNumber);
+        } else if (act === 'send_message') {
+          dispatchNativeMessageOnPhone(
+            phoneTask.parameters?.app || 'whatsapp',
+            phoneTask.parameters?.recipient || '',
+            phoneTask.parameters?.content || '',
+            phoneTask.parameters?.phoneNumber
+          );
+        } else if (act === 'toggle_wakelock') {
+          toggleScreenWakeLock();
+        }
+      }
+
       // Speak response with speech synthesis
       if (soundActive) {
         speakText(jarvisReplyText, () => {
@@ -495,6 +560,32 @@ function JarvisDashboard() {
 
       setMessages((prev) => [...prev, jarvisMsg]);
       setDevices(getLocalDevices());
+
+      // Execute physical hardware actuation if directive targeted the host mobile phone
+      const offlinePhoneTask = offlineResult?.plan?.tasks?.find(
+        (t: ExecutionTask) => t.tool === 'device_control' && (t.parameters?.deviceId === 'dev-phone-01' || !t.parameters?.deviceId)
+      );
+      if (offlinePhoneTask) {
+        const act = offlinePhoneTask.parameters?.action;
+        if (act === 'toggle_flashlight') {
+          toggleHardwareTorch(offlinePhoneTask.parameters?.state);
+        } else if (act === 'ring_phone') {
+          vibrateMobileDevice([400, 200, 400, 200, 800]);
+        } else if (act === 'cut_call') {
+          cancelMobileVibration();
+        } else if (act === 'initiate_call' && offlinePhoneTask.parameters?.phoneNumber) {
+          dialCellularCallOnPhone(offlinePhoneTask.parameters.phoneNumber);
+        } else if (act === 'send_message') {
+          dispatchNativeMessageOnPhone(
+            offlinePhoneTask.parameters?.app || 'whatsapp',
+            offlinePhoneTask.parameters?.recipient || '',
+            offlinePhoneTask.parameters?.content || '',
+            offlinePhoneTask.parameters?.phoneNumber
+          );
+        } else if (act === 'toggle_wakelock') {
+          toggleScreenWakeLock();
+        }
+      }
 
       if (soundActive) {
         speakText(offlineResult.reply, () => {
@@ -580,6 +671,26 @@ function JarvisDashboard() {
 
   // Device actions with offline local enclave support
   const handleDeviceAction = async (deviceId: string, action: string, params?: any) => {
+    // Physical mobile hardware operations if action targets this phone
+    if (deviceId === 'dev-phone-01') {
+      if (action === 'toggle_flashlight') {
+        toggleHardwareTorch();
+      } else if (action === 'ring_phone' || action === 'simulate_incoming_call') {
+        vibrateMobileDevice([400, 200, 400, 200, 800]);
+      } else if (action === 'cut_call') {
+        cancelMobileVibration();
+      } else if (action === 'initiate_call' && params?.phoneNumber) {
+        dialCellularCallOnPhone(params.phoneNumber);
+      } else if (action === 'send_message') {
+        dispatchNativeMessageOnPhone(
+          params?.app || 'whatsapp', 
+          params?.recipient || '', 
+          params?.content || '', 
+          params?.phoneNumber
+        );
+      }
+    }
+
     try {
       const res = await fetch('/api/jarvis/devices/action', {
         method: 'POST',

@@ -306,13 +306,14 @@ export function formatJarvisLocationSpeech(location: OfflineLocationData): strin
  */
 export function acquireDeviceCoordinates(): Promise<{ latitude: number; longitude: number; accuracy: number }> {
   return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined' || !navigator.geolocation) {
+    const nav = typeof window !== 'undefined' ? (window.navigator || navigator) : null;
+    if (!nav || !nav.geolocation) {
       const err = new Error('Geolocation is not supported by your browser.');
       (err as any).code = 'NOT_SUPPORTED';
       return reject(err);
     }
 
-    navigator.geolocation.getCurrentPosition(
+    nav.geolocation.getCurrentPosition(
       (position) => {
         resolve({
           latitude: position.coords.latitude,
@@ -333,16 +334,95 @@ export function acquireDeviceCoordinates(): Promise<{ latitude: number; longitud
 }
 
 /**
- * Complete Jarvis Offline Location Pipeline:
- * 1. Acquires coordinates via browser Geolocation API
- * 2. Reverse-geocodes 100% offline via local spatial index
- * 3. Handles all hardware errors with natural voice responses
+ * Complete Jarvis Location Pipeline:
+ * 1. Acquires coordinates via browser Geolocation API (latitude, longitude, accuracy).
+ * 2. If internet is on: conducts background search to find road name, city, state, and country.
+ * 3. If internet is off: returns ONLY the latitude and longitude.
+ * 4. Handles all hardware errors with natural voice responses.
  */
+/**
+ * Probes internet reachability to accurately distinguish online vs offline mode.
+ */
+export async function isInternetActive(): Promise<boolean> {
+  const nav = typeof window !== 'undefined' ? (window.navigator || navigator) : (typeof navigator !== 'undefined' ? navigator : null);
+  if (!nav || nav.onLine === false) {
+    return false;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=0&longitude=0', {
+      method: 'HEAD',
+      mode: 'no-cors',
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    clearTimeout(timeout);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function determineUserLocation(): Promise<GeoLocationResult> {
   try {
     const coords = await acquireDeviceCoordinates();
-    const locationData = await reverseGeocodeOffline(coords);
-    const speechText = formatJarvisLocationSpeech(locationData);
+    const hasInternet = await isInternetActive();
+
+    const latStr = coords.latitude.toFixed(5);
+    const lonStr = coords.longitude.toFixed(5);
+    const accMeters = Math.round(coords.accuracy);
+
+    // If internet is OFF: return ONLY the lat and long as requested!
+    if (!hasInternet) {
+      const speechText = `You are at latitude ${latStr} degrees, longitude ${lonStr} degrees. Your GPS accuracy is approximately ${accMeters} metres. Internet is currently off, returning only latitude and longitude.`;
+
+      const offlineOnlyData: OfflineLocationData = {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracy: accMeters,
+        city: '',
+        state: '',
+        country: '',
+        formattedAddress: `Latitude: ${latStr}°, Longitude: ${lonStr}° (Internet Off)`,
+        confidence: 0.99,
+        distanceToFeatureMeters: 0,
+        source: 'offline-spatial-db',
+      };
+
+      return {
+        success: true,
+        location: offlineOnlyData,
+        speechText,
+      };
+    }
+
+    // If internet is ON: conduct background search to find the name of the road, city, state, and country
+    let locationData: OfflineLocationData | null = null;
+
+    try {
+      locationData = await reverseGeocodeOnline(coords);
+    } catch {
+      console.log('[JARVIS Location] Online search error, falling back to local dataset.');
+    }
+
+    if (!locationData) {
+      locationData = await reverseGeocodeOffline(coords);
+    }
+
+    const { road, locality, city, state, country } = locationData;
+    const parts: string[] = [];
+    if (road) parts.push(road);
+    if (locality && locality !== road && (!road || !locality.toLowerCase().includes(road.toLowerCase()))) {
+      parts.push(locality);
+    }
+    if (city) parts.push(city);
+    if (state && state !== city) parts.push(state);
+    if (country) parts.push(country);
+
+    const addressResolved = parts.join(', ');
+    const speechText = `You are at latitude ${latStr} degrees, longitude ${lonStr} degrees. Location: ${addressResolved}. Your GPS accuracy is approximately ${accMeters} metres.`;
 
     return {
       success: true,
@@ -394,7 +474,12 @@ export function isLocationQuery(prompt: string): boolean {
     p.includes('where i am') ||
     p.includes('find my location') ||
     p.includes('get my location') ||
-    p.includes('locate me')
+    p.includes('locate me') ||
+    p.includes('lat and long') ||
+    p.includes('latitude and longitude') ||
+    p.includes('coordinates') ||
+    p === 'gps' ||
+    p.includes('user location')
   );
 }
 
@@ -408,10 +493,57 @@ export async function reverseGeocodeOnline(coords: {
   longitude: number;
   accuracy: number;
 }): Promise<OfflineLocationData | null> {
-  if (typeof window === 'undefined' || !navigator.onLine) {
+  const nav = typeof window !== 'undefined' ? (window.navigator || navigator) : (typeof navigator !== 'undefined' ? navigator : null);
+  if (!nav || !nav.onLine) {
     return null;
   }
 
+  // 1. Try BigDataCloud Free Client Reverse Geocoding (Zero keys, no CORS issue, fast)
+  try {
+    const bdcUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${coords.latitude}&longitude=${coords.longitude}&localityLanguage=en`;
+    const res = await fetch(bdcUrl);
+    if (res.ok) {
+      const data = await res.json();
+      const city = data.city || data.locality || data.principalSubdivision || 'Local Area';
+      const state = data.principalSubdivision || '';
+      const country = data.countryName || '';
+      const locality = data.locality && data.locality !== city ? data.locality : undefined;
+
+      let road: string | undefined = undefined;
+      if (Array.isArray(data.localityInfo?.informative)) {
+        const roadItem = data.localityInfo.informative.find(
+          (item: any) => (item.description?.includes('road') || item.description?.includes('street') || item.order >= 8) && item.name
+        );
+        if (roadItem && roadItem.name) road = roadItem.name;
+      }
+
+      const parts: string[] = [];
+      if (road) parts.push(road);
+      if (locality && locality !== road) parts.push(locality);
+      if (city && city !== locality) parts.push(city);
+      if (state && state !== city) parts.push(state);
+      if (country) parts.push(country);
+
+      if (city || state || country) {
+        return {
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: Math.round(coords.accuracy),
+          road,
+          locality,
+          city,
+          state,
+          country,
+          formattedAddress: parts.join(', '),
+          confidence: 0.98,
+          distanceToFeatureMeters: 5,
+          source: 'online-fallback',
+        };
+      }
+    }
+  } catch {}
+
+  // 2. Try OpenStreetMap Nominatim Free Reverse Geocoding
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords.latitude}&lon=${coords.longitude}&zoom=18&addressdetails=1`;
     const res = await fetch(url, {

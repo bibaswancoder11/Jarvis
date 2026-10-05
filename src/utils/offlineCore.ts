@@ -1,16 +1,19 @@
 import { ConnectedDevice, ExecutionPlan, InstalledApp, PhoneCallState, PhoneMessage, AutomationWorkflow, KnowledgeDocument } from '../types';
+import { resolveRecipientContact } from './contacts';
 
 // Default initial device mesh state for sovereign offline operation
 export const DEFAULT_OFFLINE_DEVICES: ConnectedDevice[] = [
   {
     id: 'dev-phone-01',
-    name: 'Pixel 9 Pro Mobile Unit (Sovereign)',
+    name: 'Mobile Phone (This Device / Pixel Unit)',
     type: 'phone',
-    protocol: 'Wi-Fi (Real Mobile Link)',
-    address: '192.168.1.142',
+    protocol: 'Local Bus',
+    address: '127.0.0.1 (Local Host)',
     status: 'connected',
+    isHostDevice: true,
+    hostPlatform: 'Mobile Unit (This Device)',
     batteryPercent: 88,
-    signalStrengthDbm: -52,
+    signalStrengthDbm: -42,
     requiredSecurityLevel: 1,
     lastPingMs: 14,
     isLocked: false,
@@ -498,6 +501,11 @@ export function executeOfflineDirective(prompt: string): { plan: ExecutionPlan; 
       if (match && match[1]) recipient = match[1].trim();
     }
 
+    // Resolve international phone number from directory to bypass WhatsApp contact picker
+    const resolvedContact = resolveRecipientContact(recipient);
+    const targetPhoneNumber = resolvedContact.phoneNumber;
+    const finalRecipientName = resolvedContact.name || recipient;
+
     let messageContent = 'Status synchronized via JARVIS Sovereign Core.';
     const contentMatch = p.match(/(?:saying|that|message is|content:?)\s+(.*)/i);
     if (contentMatch && contentMatch[1]) messageContent = contentMatch[1].trim();
@@ -506,7 +514,8 @@ export function executeOfflineDirective(prompt: string): { plan: ExecutionPlan; 
       id: `msg-${Date.now()}`,
       app: chosenApp,
       sender: 'You (JARVIS)',
-      recipient,
+      recipient: finalRecipientName,
+      phoneNumber: targetPhoneNumber,
       content: messageContent,
       timestamp: Date.now(),
       status: 'delivered',
@@ -522,7 +531,7 @@ export function executeOfflineDirective(prompt: string): { plan: ExecutionPlan; 
       plan: {
         id: `plan-${Date.now()}`,
         userPrompt: prompt,
-        intent: `Dispatch Encrypted Message via ${appName} (Offline Enclave)`,
+        intent: `Dispatch Encrypted Message via ${appName} directly to ${finalRecipientName}`,
         confidence: 0.99,
         status: 'completed',
         createdAt: Date.now(),
@@ -530,16 +539,23 @@ export function executeOfflineDirective(prompt: string): { plan: ExecutionPlan; 
           {
             id: `task-${Date.now()}-1`,
             step: 1,
-            title: `Route Message through ${appName} Protocol Container`,
+            title: `Route Direct Message to ${finalRecipientName} (${targetPhoneNumber}) via ${appName}`,
             tool: 'device_control',
-            parameters: { deviceId: phone.id, action: 'send_message', app: chosenApp, recipient, content: messageContent },
+            parameters: { 
+              deviceId: phone.id, 
+              action: 'send_message', 
+              app: chosenApp, 
+              recipient: finalRecipientName, 
+              phoneNumber: targetPhoneNumber,
+              content: messageContent 
+            },
             status: 'completed',
             requiredSecurityLevel: 1,
-            output: `Message delivered to ${recipient} via ${appName}.`,
+            output: `Direct message payload configured for ${finalRecipientName} (${targetPhoneNumber}) via ${appName}.`,
           },
         ],
       },
-      reply: `Message dispatched to ${recipient} via ${appName}: "${messageContent}", sir.`,
+      reply: `Direct ${appName} message loaded for ${finalRecipientName} (${targetPhoneNumber}): "${messageContent}", sir. Direct conversation opened without contact selection.`,
     };
   }
 
