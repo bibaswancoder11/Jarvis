@@ -1,5 +1,6 @@
 import { ConnectedDevice, ExecutionPlan, InstalledApp, PhoneCallState, PhoneMessage, AutomationWorkflow, KnowledgeDocument } from '../types';
-import { resolveRecipientContact } from './contacts';
+import { resolveRecipientContact, parseMessagingCommand, cleanPhoneNumberForWhatsApp } from './contacts';
+import { generateUniqueId, generateMessageId, generateTaskId, generatePlanId } from './uniqueId';
 
 // Default initial device mesh state for sovereign offline operation
 export const DEFAULT_OFFLINE_DEVICES: ConnectedDevice[] = [
@@ -484,34 +485,15 @@ export function executeOfflineDirective(prompt: string): { plan: ExecutionPlan; 
   }
 
   // 4. Send Message via 3rd Party Apps (Signal, WhatsApp, Telegram, SMS)
-  const isMessage = p.includes('send message') || p.includes('text') || p.includes('message') || 
-                    p.includes('whatsapp') || p.includes('telegram') || (p.includes('signal') && (p.includes('send') || p.includes('tell')));
-  if (isMessage && phone) {
-    let chosenApp: 'signal' | 'whatsapp' | 'telegram' | 'sms' = 'signal';
-    if (p.includes('whatsapp')) chosenApp = 'whatsapp';
-    else if (p.includes('telegram')) chosenApp = 'telegram';
-    else if (p.includes('sms') || p.includes('text')) chosenApp = 'sms';
-
-    let recipient = 'Dr. Bruce Banner';
-    if (p.includes('pepper')) recipient = 'Pepper Potts';
-    else if (p.includes('tony')) recipient = 'Tony Stark';
-    else if (p.includes('rhodey')) recipient = 'Col. James Rhodes';
-    else {
-      const match = p.match(/(?:to|message)\s+([a-zA-Z\s]+?)(?:\s+saying|\s+that|\s*:|$)/i);
-      if (match && match[1]) recipient = match[1].trim();
-    }
-
-    // Resolve international phone number from directory to bypass WhatsApp contact picker
-    const resolvedContact = resolveRecipientContact(recipient);
-    const targetPhoneNumber = resolvedContact.phoneNumber;
-    const finalRecipientName = resolvedContact.name || recipient;
-
-    let messageContent = 'Status synchronized via JARVIS Sovereign Core.';
-    const contentMatch = p.match(/(?:saying|that|message is|content:?)\s+(.*)/i);
-    if (contentMatch && contentMatch[1]) messageContent = contentMatch[1].trim();
+  const parsedMsg = parseMessagingCommand(prompt);
+  if (parsedMsg.isMessaging && phone) {
+    const chosenApp = parsedMsg.app;
+    const targetPhoneNumber = parsedMsg.phoneNumber;
+    const finalRecipientName = parsedMsg.recipient;
+    const messageContent = parsedMsg.content;
 
     const newMsg: PhoneMessage = {
-      id: `msg-${Date.now()}`,
+      id: generateMessageId(),
       app: chosenApp,
       sender: 'You (JARVIS)',
       recipient: finalRecipientName,
@@ -527,19 +509,25 @@ export function executeOfflineDirective(prompt: string): { plan: ExecutionPlan; 
     saveLocalDevices(devices);
 
     const appName = chosenApp.toUpperCase();
+    const isDirectLocked = targetPhoneNumber && targetPhoneNumber.length >= 7;
+
     return {
       plan: {
-        id: `plan-${Date.now()}`,
+        id: generatePlanId(),
         userPrompt: prompt,
-        intent: `Dispatch Encrypted Message via ${appName} directly to ${finalRecipientName}`,
+        intent: isDirectLocked
+          ? `Dispatch Encrypted Direct Message via ${appName} to ${finalRecipientName} (${targetPhoneNumber})`
+          : `Prepare Direct WhatsApp Payload for ${finalRecipientName} (Locking Direct Chat Thread)`,
         confidence: 0.99,
         status: 'completed',
         createdAt: Date.now(),
         tasks: [
           {
-            id: `task-${Date.now()}-1`,
+            id: generateTaskId(1),
             step: 1,
-            title: `Route Direct Message to ${finalRecipientName} (${targetPhoneNumber}) via ${appName}`,
+            title: isDirectLocked
+              ? `Route Direct Message to ${finalRecipientName} (${targetPhoneNumber}) via ${appName}`
+              : `Bypass WhatsApp Manual Contact Picker: Opening Direct Contact Lock Hub`,
             tool: 'device_control',
             parameters: { 
               deviceId: phone.id, 
@@ -551,11 +539,15 @@ export function executeOfflineDirective(prompt: string): { plan: ExecutionPlan; 
             },
             status: 'completed',
             requiredSecurityLevel: 1,
-            output: `Direct message payload configured for ${finalRecipientName} (${targetPhoneNumber}) via ${appName}.`,
+            output: isDirectLocked
+              ? `Direct message payload configured for ${finalRecipientName} (${targetPhoneNumber}) via ${appName}. Manual contact sharing bypassed.`
+              : `Composed payload for ${finalRecipientName}. Direct Chat Lock activated to eliminate manual picker haphazard.`,
           },
         ],
       },
-      reply: `Direct ${appName} message loaded for ${finalRecipientName} (${targetPhoneNumber}): "${messageContent}", sir. Direct conversation opened without contact selection.`,
+      reply: isDirectLocked
+        ? `Direct ${appName} message loaded for ${finalRecipientName} (${targetPhoneNumber}): "${messageContent}", sir. Direct conversation loaded without manual contact selection.`
+        : `I have composed your ${appName} message: "${messageContent}". To eliminate WhatsApp's contact picker haphazard and open their personal chat directly, please select or specify ${finalRecipientName}'s phone number.`,
     };
   }
 

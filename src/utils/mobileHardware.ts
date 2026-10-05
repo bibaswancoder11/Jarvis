@@ -158,14 +158,29 @@ export function dispatchNativeMessageOnPhone(
 
   // Resolve recipient contact and phone number
   const resolved = resolveRecipientContact(explicitPhoneNumber || recipientIdentifier);
-  const targetPhone = explicitPhoneNumber || (resolved.isResolved ? resolved.phoneNumber : recipientIdentifier);
+  const targetPhone = explicitPhoneNumber || (resolved.isResolved ? resolved.phoneNumber : '');
   const cleanNumber = cleanPhoneNumberForWhatsApp(targetPhone);
   const encodedText = encodeURIComponent(content);
 
   if (app === 'whatsapp') {
-    // Generate direct WhatsApp link:
-    // https://api.whatsapp.com/send?phone=${cleanNumber}&text=${encodedText}
-    // With phone number included, WhatsApp opens directly to that contact's chat!
+    // If no clean phone number is available (e.g. unknown contact or "someone"),
+    // DO NOT open WhatsApp's generic share URL (which causes the manual contact picker haphazard).
+    // Instead, trigger the Direct WhatsApp Chat Lock Modal so the user can tap a saved contact
+    // or enter a phone number to load directly into their private chat thread.
+    if (!cleanNumber) {
+      window.dispatchEvent(
+        new CustomEvent('jarvis_open_direct_whatsapp_modal', {
+          detail: {
+            recipient: recipientIdentifier || 'Direct Contact',
+            content,
+            app: 'whatsapp',
+          },
+        })
+      );
+      return;
+    }
+
+    // Direct WhatsApp chat link directly targeting the contact's phone number
     const targetUrl = generateDirectWhatsAppUrl(cleanNumber, content);
     
     // On mobile devices, window.location.href opens the native WhatsApp app seamlessly

@@ -644,8 +644,8 @@ export const DeviceMeshView: React.FC<DeviceMeshViewProps> = ({
                     onChange={(e) => handleSelectContact(e.target.value)}
                     className="w-full bg-white/5 border border-white/10 focus:border-cyan-400/50 rounded-xl px-2.5 py-1.5 text-xs text-slate-100 font-sans focus:outline-none"
                   >
-                    {contactsList.map((c) => (
-                      <option key={c.id} value={c.id} className="bg-slate-900 text-slate-100">
+                    {contactsList.map((c, i) => (
+                      <option key={`${c.id}-${i}`} value={c.id} className="bg-slate-900 text-slate-100">
                         {c.name} ({c.phoneNumber})
                       </option>
                     ))}

@@ -114,32 +114,40 @@ export function resolveRecipientContact(query: string): {
   isResolved: boolean;
 } {
   const trimmed = query.trim();
+  if (!trimmed) {
+    const fallback = getSavedContacts()[0] || DEFAULT_JARVIS_CONTACTS[0];
+    return { name: fallback.name, phoneNumber: fallback.phoneNumber, isResolved: false };
+  }
+
   const contacts = getSavedContacts();
 
   // 1. Direct phone number check in query (e.g. "+12125550199", "212-555-0199", or "at 9876543210")
-  const phonePattern = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+?\d{10,15}/;
+  const phonePattern = /(?:\+?\d{1,4}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}|\+?\d{10,15}/;
   const phoneMatch = trimmed.match(phonePattern);
   if (phoneMatch) {
     const rawNumber = phoneMatch[0];
     const cleanDigits = cleanPhoneNumberForWhatsApp(rawNumber);
-    // Check if any contact has this number
-    const matchByNum = contacts.find(
-      (c) => cleanPhoneNumberForWhatsApp(c.phoneNumber) === cleanDigits
-    );
-    return {
-      name: matchByNum ? matchByNum.name : rawNumber,
-      phoneNumber: rawNumber,
-      isResolved: true,
-    };
+    if (cleanDigits.length >= 7) {
+      // Check if any contact has this number
+      const matchByNum = contacts.find(
+        (c) => cleanPhoneNumberForWhatsApp(c.phoneNumber) === cleanDigits
+      );
+      return {
+        name: matchByNum ? matchByNum.name : rawNumber,
+        phoneNumber: cleanDigits,
+        isResolved: true,
+      };
+    }
   }
 
   // 2. Name matching against saved contacts
   const lowerQuery = trimmed.toLowerCase();
-  
+
   for (const c of contacts) {
     const cLower = c.name.toLowerCase();
-    const firstLower = cLower.split(' ')[0];
-    const lastLower = cLower.split(' ').slice(1).join(' ');
+    const parts = cLower.split(/\s+/);
+    const firstLower = parts[0] || '';
+    const lastLower = parts.slice(1).join(' ');
 
     if (
       lowerQuery === cLower ||
@@ -149,44 +157,202 @@ export function resolveRecipientContact(query: string): {
     ) {
       return {
         name: c.name,
-        phoneNumber: c.phoneNumber,
+        phoneNumber: cleanPhoneNumberForWhatsApp(c.phoneNumber),
         isResolved: true,
       };
     }
   }
 
-  // Common aliases
-  if (lowerQuery.includes('pepper')) {
+  // Common aliases & Marvel references
+  if (lowerQuery.includes('pepper') || lowerQuery.includes('potts')) {
     const p = contacts.find((c) => c.name.toLowerCase().includes('pepper'));
-    if (p) return { name: p.name, phoneNumber: p.phoneNumber, isResolved: true };
+    if (p) return { name: p.name, phoneNumber: cleanPhoneNumberForWhatsApp(p.phoneNumber), isResolved: true };
   }
-  if (lowerQuery.includes('tony') || lowerQuery.includes('stark')) {
+  if (lowerQuery.includes('tony') || lowerQuery.includes('stark') || lowerQuery.includes('iron man')) {
     const t = contacts.find((c) => c.name.toLowerCase().includes('tony'));
-    if (t) return { name: t.name, phoneNumber: t.phoneNumber, isResolved: true };
+    if (t) return { name: t.name, phoneNumber: cleanPhoneNumberForWhatsApp(t.phoneNumber), isResolved: true };
   }
-  if (lowerQuery.includes('banner') || lowerQuery.includes('bruce')) {
+  if (lowerQuery.includes('banner') || lowerQuery.includes('bruce') || lowerQuery.includes('hulk')) {
     const b = contacts.find((c) => c.name.toLowerCase().includes('banner'));
-    if (b) return { name: b.name, phoneNumber: b.phoneNumber, isResolved: true };
+    if (b) return { name: b.name, phoneNumber: cleanPhoneNumberForWhatsApp(b.phoneNumber), isResolved: true };
   }
   if (lowerQuery.includes('rhodey') || lowerQuery.includes('rhodes') || lowerQuery.includes('war machine')) {
     const r = contacts.find((c) => c.name.toLowerCase().includes('rhodes'));
-    if (r) return { name: r.name, phoneNumber: r.phoneNumber, isResolved: true };
+    if (r) return { name: r.name, phoneNumber: cleanPhoneNumberForWhatsApp(r.phoneNumber), isResolved: true };
   }
-  if (lowerQuery.includes('happy')) {
+  if (lowerQuery.includes('happy') || lowerQuery.includes('hogan')) {
     const h = contacts.find((c) => c.name.toLowerCase().includes('happy'));
-    if (h) return { name: h.name, phoneNumber: h.phoneNumber, isResolved: true };
+    if (h) return { name: h.name, phoneNumber: cleanPhoneNumberForWhatsApp(h.phoneNumber), isResolved: true };
   }
-  if (lowerQuery.includes('peter') || lowerQuery.includes('spider')) {
+  if (lowerQuery.includes('peter') || lowerQuery.includes('parker') || lowerQuery.includes('spiderman') || lowerQuery.includes('spider')) {
     const sp = contacts.find((c) => c.name.toLowerCase().includes('peter'));
-    if (sp) return { name: sp.name, phoneNumber: sp.phoneNumber, isResolved: true };
+    if (sp) return { name: sp.name, phoneNumber: cleanPhoneNumberForWhatsApp(sp.phoneNumber), isResolved: true };
   }
 
-  // Fallback: Default to first contact in directory
-  const fallback = contacts[0] || DEFAULT_JARVIS_CONTACTS[0];
+  // If query itself contains only digits (e.g. "12125550199")
+  const rawClean = cleanPhoneNumberForWhatsApp(trimmed);
+  if (rawClean.length >= 7) {
+    return {
+      name: trimmed,
+      phoneNumber: rawClean,
+      isResolved: true,
+    };
+  }
+
+  // Fallback: Contact is unknown/unresolved
   return {
-    name: trimmed || fallback.name,
-    phoneNumber: fallback.phoneNumber,
+    name: trimmed,
+    phoneNumber: '',
     isResolved: false,
+  };
+}
+
+export interface ParsedMessagingCommand {
+  isMessaging: boolean;
+  app: 'whatsapp' | 'sms' | 'telegram' | 'signal';
+  recipient: string;
+  phoneNumber: string;
+  content: string;
+  isResolved: boolean;
+  requiresContactSelection: boolean;
+}
+
+/**
+ * Parses user speech or text prompt into a structured messaging command,
+ * extracting the target app, recipient, phone number, and message content.
+ */
+export function parseMessagingCommand(prompt: string): ParsedMessagingCommand {
+  const p = prompt.trim();
+  const lower = p.toLowerCase();
+
+  const isMsg =
+    lower.includes('send message') ||
+    lower.includes('send a message') ||
+    lower.includes('text') ||
+    lower.includes('message') ||
+    lower.includes('whatsapp') ||
+    lower.includes('telegram') ||
+    (lower.includes('signal') && (lower.includes('send') || lower.includes('tell')));
+
+  if (!isMsg) {
+    return {
+      isMessaging: false,
+      app: 'whatsapp',
+      recipient: '',
+      phoneNumber: '',
+      content: '',
+      isResolved: false,
+      requiresContactSelection: false,
+    };
+  }
+
+  // Determine App
+  let app: 'whatsapp' | 'sms' | 'telegram' | 'signal' = 'whatsapp';
+  if (lower.includes('whatsapp')) app = 'whatsapp';
+  else if (lower.includes('telegram')) app = 'telegram';
+  else if (lower.includes('sms') || (lower.includes('text') && !lower.includes('whatsapp'))) app = 'sms';
+  else if (lower.includes('signal')) app = 'signal';
+
+  // 1. Direct Phone Number check anywhere in prompt
+  const phonePattern = /(?:\+?\d{1,4}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}|\+?\d{10,15}/;
+  const phoneMatches = p.match(phonePattern);
+  let explicitPhone = '';
+  if (phoneMatches) {
+    const testDigits = phoneMatches[0].replace(/[^0-9]/g, '');
+    if (testDigits.length >= 7) {
+      explicitPhone = phoneMatches[0];
+    }
+  }
+
+  // 2. Extract Message Content:
+  // Usually comes after "saying:", "saying", "that", "message is", "content:", "with text", "with message", or ":"
+  let content = 'Status synchronized via JARVIS Sovereign Core.';
+  let contentIndex = -1;
+
+  const contentTriggers = [
+    ' saying: ',
+    ' saying ',
+    ' that ',
+    ' message is ',
+    ' content: ',
+    ' with text ',
+    ' with message ',
+  ];
+
+  for (const trigger of contentTriggers) {
+    const idx = lower.indexOf(trigger);
+    if (idx !== -1) {
+      contentIndex = idx;
+      content = p.substring(idx + trigger.length).trim();
+      break;
+    }
+  }
+
+  if (contentIndex === -1 && p.includes(':')) {
+    const colonIdx = p.indexOf(':');
+    if (colonIdx > 4 && !lower.substring(0, colonIdx).includes('http')) {
+      content = p.substring(colonIdx + 1).trim();
+      contentIndex = colonIdx;
+    }
+  }
+
+  // Quote check
+  const quoteMatch = p.match(/["']([^"']+)["']/);
+  if (quoteMatch && quoteMatch[1] && content === 'Status synchronized via JARVIS Sovereign Core.') {
+    content = quoteMatch[1].trim();
+  }
+
+  // 3. Extract Recipient from portion before content
+  const commandHead = contentIndex !== -1 ? p.substring(0, contentIndex) : p;
+  const lowerHead = commandHead.toLowerCase();
+
+  let rawRecipient = '';
+
+  const toIdx = lowerHead.lastIndexOf(' to ');
+  if (toIdx !== -1) {
+    rawRecipient = commandHead.substring(toIdx + 4).trim();
+  } else if (lowerHead.includes('tell ')) {
+    rawRecipient = commandHead.substring(lowerHead.indexOf('tell ') + 5).trim();
+  } else if (lowerHead.includes('message ')) {
+    rawRecipient = commandHead.substring(lowerHead.indexOf('message ') + 8).trim();
+  } else if (lowerHead.includes('text ')) {
+    rawRecipient = commandHead.substring(lowerHead.indexOf('text ') + 5).trim();
+  } else if (lowerHead.includes('whatsapp ')) {
+    rawRecipient = commandHead.substring(lowerHead.indexOf('whatsapp ') + 9).trim();
+  }
+
+  // Clean app phrases from raw recipient string
+  rawRecipient = rawRecipient
+    .replace(/(?:using|via|on|through)\s+(?:whatsapp|signal|telegram|sms)/gi, '')
+    .replace(/(?:whatsapp|signal|telegram|sms)/gi, '')
+    .trim();
+
+  // If explicit phone is in the prompt
+  if (explicitPhone) {
+    if (!rawRecipient || rawRecipient === explicitPhone || cleanPhoneNumberForWhatsApp(rawRecipient) === cleanPhoneNumberForWhatsApp(explicitPhone)) {
+      rawRecipient = explicitPhone;
+    }
+  }
+
+  if (!rawRecipient) {
+    rawRecipient = 'someone';
+  }
+
+  // Resolve recipient against contacts directory
+  const resolved = resolveRecipientContact(explicitPhone || rawRecipient);
+  const cleanNumber = cleanPhoneNumberForWhatsApp(explicitPhone || (resolved.isResolved ? resolved.phoneNumber : ''));
+
+  const isResolved = cleanNumber.length >= 7;
+  const requiresContactSelection = !isResolved;
+
+  return {
+    isMessaging: true,
+    app,
+    recipient: resolved.isResolved ? resolved.name : rawRecipient,
+    phoneNumber: cleanNumber,
+    content,
+    isResolved,
+    requiresContactSelection,
   };
 }
 

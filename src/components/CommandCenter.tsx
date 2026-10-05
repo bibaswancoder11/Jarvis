@@ -117,13 +117,13 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
           </div>
         )}
 
-        {messages.map((msg) => {
+        {messages.map((msg, index) => {
           const isUser = msg.sender === 'user';
           const isSystem = msg.sender === 'system';
 
           return (
             <div
-              key={msg.id}
+              key={`${msg.id || 'msg'}-${index}-${msg.timestamp || ''}`}
               className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-full`}
             >
               <div className="flex items-center gap-2 mb-1 text-[10px] text-slate-400 px-1 font-sans">
@@ -193,14 +193,14 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
 
             {/* Tasks Chain */}
             <div className="space-y-2">
-              {currentPlan.tasks.map((task) => {
+              {currentPlan.tasks.map((task, taskIdx) => {
                 const isExpanded = expandedTasks[task.id];
                 const isAuthReq = task.status === 'requires_authorization';
                 const isCompleted = task.status === 'completed';
 
                 return (
                   <div
-                    key={task.id}
+                    key={`${task.id || 'task'}-${taskIdx}-${task.step || 0}`}
                     className={`rounded-xl border text-xs transition-all ${
                       isAuthReq
                         ? 'bg-amber-500/10 border-amber-500/40 text-amber-200'

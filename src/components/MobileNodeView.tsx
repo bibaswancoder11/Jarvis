@@ -982,9 +982,9 @@ export const MobileNodeView: React.FC<MobileNodeViewProps> = ({
                         if (activeApp === 'app-whatsapp') return m.app === 'whatsapp';
                         return m.app === 'telegram' || m.app === 'sms';
                       })
-                      .map((msg) => (
+                      .map((msg, idx) => (
                         <div
-                          key={msg.id}
+                          key={msg.id ? `${msg.id}-${idx}` : `mobile-msg-${idx}`}
                           className={`p-2.5 rounded-2xl max-w-[85%] ${
                             msg.sender.includes('You')
                               ? 'ml-auto bg-cyan-600 text-white rounded-br-none'

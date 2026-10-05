@@ -12,6 +12,9 @@ import { MobilePairingModal } from './components/MobilePairingModal';
 import { MobileNodeView } from './components/MobileNodeView';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { OfflineGuideModal } from './components/OfflineGuideModal';
+import { DirectWhatsAppModal } from './components/DirectWhatsAppModal';
+import { generateUniqueMessageId } from './utils/idGenerator';
+import { parseMessagingCommand, cleanPhoneNumberForWhatsApp } from './utils/contacts';
 import { 
   getLocalDevices, 
   saveLocalDevices, 
@@ -105,6 +108,30 @@ function JarvisDashboard() {
   const [workflows, setWorkflows] = useState<AutomationWorkflow[]>([]);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [pendingAuthTask, setPendingAuthTask] = useState<ExecutionTask | null>(null);
+  const [directWhatsAppParams, setDirectWhatsAppParams] = useState<{
+    isOpen: boolean;
+    recipient: string;
+    content: string;
+  }>({
+    isOpen: false,
+    recipient: '',
+    content: '',
+  });
+
+  // Listen for direct WhatsApp contact selection events
+  useEffect(() => {
+    const handleDirectWAModal = (e: any) => {
+      if (e.detail) {
+        setDirectWhatsAppParams({
+          isOpen: true,
+          recipient: e.detail.recipient || 'Direct Contact',
+          content: e.detail.content || '',
+        });
+      }
+    };
+    window.addEventListener('jarvis_open_direct_whatsapp_modal', handleDirectWAModal);
+    return () => window.removeEventListener('jarvis_open_direct_whatsapp_modal', handleDirectWAModal);
+  }, []);
 
   const recognitionRef = useRef<any>(null);
 
@@ -170,7 +197,7 @@ function JarvisDashboard() {
           setMessages((prev) => [
             ...prev,
             {
-              id: `msg-${Date.now()}`,
+              id: generateUniqueMessageId(),
               sender: 'system',
               text: `Physical Mobile Device [${data.device?.name || 'Mobile Unit'}] connected via Real-Time Wi-Fi. Full device actuation & lock control online.`,
               timestamp: Date.now(),
@@ -187,7 +214,7 @@ function JarvisDashboard() {
           setMessages((prev) => [
             ...prev,
             {
-              id: `msg-${Date.now()}`,
+              id: generateUniqueMessageId(),
               sender: 'system',
               text: `Physical Web Bluetooth device "${data.device?.name}" paired and authenticated with JARVIS mesh.`,
               timestamp: Date.now(),
@@ -363,13 +390,23 @@ function JarvisDashboard() {
     setOrbStatus('processing');
 
     const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
+      id: generateUniqueMessageId(),
       sender: 'user',
       text: promptText,
       timestamp: Date.now(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
+
+    // Check if WhatsApp directive requires direct contact selection/lock
+    const parsedMsg = parseMessagingCommand(promptText);
+    if (parsedMsg.isMessaging && parsedMsg.app === 'whatsapp' && parsedMsg.requiresContactSelection) {
+      setDirectWhatsAppParams({
+        isOpen: true,
+        recipient: parsedMsg.recipient || 'Direct Contact',
+        content: parsedMsg.content || '',
+      });
+    }
 
     // Offline Hardware GNSS & Spatial Reverse-Geocoding Interceptor
     if (isLocationQuery(promptText)) {
@@ -436,7 +473,7 @@ function JarvisDashboard() {
         setOrbStatus('speaking');
 
         const jarvisMsg: ChatMessage = {
-          id: `msg-${Date.now() + 1}`,
+          id: generateUniqueMessageId(),
           sender: 'jarvis',
           text: geoResult.speechText,
           timestamp: Date.now(),
@@ -497,7 +534,7 @@ function JarvisDashboard() {
 
       const jarvisReplyText = data.reply || 'Directive acknowledged, sir.';
       const jarvisMsg: ChatMessage = {
-        id: `msg-${Date.now() + 1}`,
+        id: generateUniqueMessageId(),
         sender: 'jarvis',
         text: jarvisReplyText,
         timestamp: Date.now(),
@@ -523,12 +560,23 @@ function JarvisDashboard() {
         } else if (act === 'initiate_call' && phoneTask.parameters?.phoneNumber) {
           dialCellularCallOnPhone(phoneTask.parameters.phoneNumber);
         } else if (act === 'send_message') {
-          dispatchNativeMessageOnPhone(
-            phoneTask.parameters?.app || 'whatsapp',
-            phoneTask.parameters?.recipient || '',
-            phoneTask.parameters?.content || '',
-            phoneTask.parameters?.phoneNumber
-          );
+          const targetApp = phoneTask.parameters?.app || 'whatsapp';
+          const targetPhone = phoneTask.parameters?.phoneNumber;
+          const clean = cleanPhoneNumberForWhatsApp(targetPhone);
+          if (targetApp === 'whatsapp' && clean.length < 7) {
+            setDirectWhatsAppParams({
+              isOpen: true,
+              recipient: phoneTask.parameters?.recipient || 'Direct Contact',
+              content: phoneTask.parameters?.content || '',
+            });
+          } else {
+            dispatchNativeMessageOnPhone(
+              targetApp,
+              phoneTask.parameters?.recipient || '',
+              phoneTask.parameters?.content || '',
+              targetPhone
+            );
+          }
         } else if (act === 'toggle_wakelock') {
           toggleScreenWakeLock();
         }
@@ -551,7 +599,7 @@ function JarvisDashboard() {
       playJarvisChime();
 
       const jarvisMsg: ChatMessage = {
-        id: `msg-${Date.now() + 1}`,
+        id: generateUniqueMessageId(),
         sender: 'jarvis',
         text: offlineResult.reply,
         timestamp: Date.now(),
@@ -576,12 +624,23 @@ function JarvisDashboard() {
         } else if (act === 'initiate_call' && offlinePhoneTask.parameters?.phoneNumber) {
           dialCellularCallOnPhone(offlinePhoneTask.parameters.phoneNumber);
         } else if (act === 'send_message') {
-          dispatchNativeMessageOnPhone(
-            offlinePhoneTask.parameters?.app || 'whatsapp',
-            offlinePhoneTask.parameters?.recipient || '',
-            offlinePhoneTask.parameters?.content || '',
-            offlinePhoneTask.parameters?.phoneNumber
-          );
+          const targetApp = offlinePhoneTask.parameters?.app || 'whatsapp';
+          const targetPhone = offlinePhoneTask.parameters?.phoneNumber;
+          const clean = cleanPhoneNumberForWhatsApp(targetPhone);
+          if (targetApp === 'whatsapp' && clean.length < 7) {
+            setDirectWhatsAppParams({
+              isOpen: true,
+              recipient: offlinePhoneTask.parameters?.recipient || 'Direct Contact',
+              content: offlinePhoneTask.parameters?.content || '',
+            });
+          } else {
+            dispatchNativeMessageOnPhone(
+              targetApp,
+              offlinePhoneTask.parameters?.recipient || '',
+              offlinePhoneTask.parameters?.content || '',
+              targetPhone
+            );
+          }
         } else if (act === 'toggle_wakelock') {
           toggleScreenWakeLock();
         }
@@ -636,7 +695,7 @@ function JarvisDashboard() {
     setMessages((prev) => [
       ...prev,
       {
-        id: `msg-${Date.now()}`,
+        id: generateUniqueMessageId(),
         sender: 'system',
         text: `Level Biometric Security Clearance GRANTED for subroutine execution. Task verified with cryptographic seal.`,
         timestamp: Date.now(),
@@ -661,7 +720,7 @@ function JarvisDashboard() {
     setMessages((prev) => [
       ...prev,
       {
-        id: `msg-${Date.now()}`,
+        id: generateUniqueMessageId(),
         sender: 'system',
         text: `Directive authorization DENIED by operator. Security barrier held.`,
         timestamp: Date.now(),
@@ -776,7 +835,7 @@ function JarvisDashboard() {
           if (!updated.features) updated.features = {};
           if (!updated.features.recentMessages) updated.features.recentMessages = [];
           updated.features.recentMessages.unshift({
-            id: `msg-${Date.now()}`,
+            id: generateUniqueMessageId(),
             app: params?.app || 'whatsapp',
             sender: 'You (JARVIS)',
             recipient: params?.recipient || 'Contact',
@@ -844,7 +903,7 @@ function JarvisDashboard() {
         setMessages((prev) => [
           ...prev,
           {
-            id: `msg-${Date.now()}`,
+            id: generateUniqueMessageId(),
             sender: 'jarvis',
             text: data.message,
             timestamp: Date.now(),
@@ -1127,6 +1186,25 @@ function JarvisDashboard() {
           onRunTestMessage={() => handleSendMessage('Send message to Pepper Potts on WhatsApp saying: Systems 100% nominal')}
         />
       )}
+
+      {/* Direct WhatsApp Chat Lock Modal (Bypasses manual contact picker haphazard) */}
+      <DirectWhatsAppModal
+        isOpen={directWhatsAppParams.isOpen}
+        onClose={() => setDirectWhatsAppParams((prev) => ({ ...prev, isOpen: false }))}
+        initialRecipient={directWhatsAppParams.recipient}
+        initialContent={directWhatsAppParams.content}
+        onDispatched={(contactName, phoneNumber) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: generateUniqueMessageId(),
+              sender: 'system',
+              text: `Direct WhatsApp Chat Lock ACTIVE: Conversation loaded for ${contactName} (${phoneNumber}). Contact picker bypassed.`,
+              timestamp: Date.now(),
+            },
+          ]);
+        }}
+      />
     </div>
   );
 }

@@ -913,7 +913,7 @@ app.post("/api/jarvis/devices/action", (req, res) => {
     const content = params?.content || params?.message || params?.text || "Synchronized message via JARVIS Core.";
 
     const newMsg = {
-      id: `msg-${Date.now()}`,
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       app,
       sender: "You (JARVIS)",
       recipient,
@@ -1593,36 +1593,83 @@ function executeJarvisDeviceFunction(prompt: string) {
   }
 
   // D6. Messaging: 3rd Party Apps (Signal, WhatsApp, Telegram, SMS)
-  const isMessage = p.includes("send message") || p.includes("text") || p.includes("message") || 
+  const isMessage = p.includes("send message") || p.includes("send a message") || p.includes("text") || p.includes("message") || 
                     p.includes("whatsapp") || p.includes("telegram") || (p.includes("signal") && (p.includes("send") || p.includes("tell")));
   if (isMessage && phone) {
-    let chosenApp: 'signal' | 'whatsapp' | 'telegram' | 'sms' = 'signal';
+    let chosenApp: 'signal' | 'whatsapp' | 'telegram' | 'sms' = 'whatsapp';
     if (p.includes("whatsapp")) chosenApp = 'whatsapp';
     else if (p.includes("telegram")) chosenApp = 'telegram';
-    else if (p.includes("sms") || p.includes("text")) chosenApp = 'sms';
+    else if (p.includes("sms") || (p.includes("text") && !p.includes("whatsapp"))) chosenApp = 'sms';
+    else if (p.includes("signal")) chosenApp = 'signal';
 
-    let recipient = "Dr. Bruce Banner";
-    let phoneNumber = "+16175550182";
-    if (p.includes("pepper")) {
+    let recipient = "Direct Contact";
+    let phoneNumber = "";
+
+    // 1. Direct phone number check in prompt
+    const phonePattern = /(?:\+?\d{1,4}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}|\+?\d{10,15}/;
+    const phoneMatch = p.match(phonePattern);
+    if (phoneMatch) {
+      const cleanDigits = phoneMatch[0].replace(/[^0-9]/g, '');
+      if (cleanDigits.length >= 7) {
+        phoneNumber = cleanDigits;
+        recipient = phoneMatch[0];
+      }
+    }
+
+    // 2. Named contact recognition
+    if (p.includes("pepper") || p.includes("potts")) {
       recipient = "Pepper Potts";
-      phoneNumber = "+12125550144";
-    } else if (p.includes("tony")) {
+      phoneNumber = "12125550144";
+    } else if (p.includes("tony") || p.includes("stark")) {
       recipient = "Tony Stark";
-      phoneNumber = "+12125550199";
-    } else if (p.includes("rhodey")) {
+      phoneNumber = "12125550199";
+    } else if (p.includes("banner") || p.includes("bruce")) {
+      recipient = "Dr. Bruce Banner";
+      phoneNumber = "16175550182";
+    } else if (p.includes("rhodey") || p.includes("rhodes") || p.includes("war machine")) {
       recipient = "Col. James Rhodes";
-      phoneNumber = "+17035550177";
-    } else {
-      const match = p.match(/(?:to|message)\s+([a-zA-Z\s]+?)(?:\s+saying|\s+that|\s*:|$)/i);
-      if (match && match[1]) recipient = match[1].trim();
-      const phoneMatch = p.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+?\d{10,15}/);
-      if (phoneMatch) phoneNumber = phoneMatch[0];
+      phoneNumber = "17035550177";
+    } else if (p.includes("happy") || p.includes("hogan")) {
+      recipient = "Happy Hogan";
+      phoneNumber = "12125550163";
+    } else if (p.includes("peter") || p.includes("parker")) {
+      recipient = "Peter Parker";
+      phoneNumber = "17185550128";
+    } else if (!phoneNumber) {
+      // Extract target after "to "
+      const toIndex = p.lastIndexOf(" to ");
+      if (toIndex !== -1) {
+        let afterTo = p.substring(toIndex + 4).trim();
+        // remove saying/that/:
+        const stopIdx = afterTo.search(/(?:\s+(?:saying|that|with\s+message|message:?)|:|$)/i);
+        if (stopIdx !== -1) {
+          afterTo = afterTo.substring(0, stopIdx).trim();
+        }
+        afterTo = afterTo.replace(/(?:using|via|on|through)\s+(?:whatsapp|signal|telegram|sms)/gi, '').replace(/(?:whatsapp|signal|telegram|sms)/gi, '').trim();
+        if (afterTo) recipient = afterTo;
+      } else {
+        const match = p.match(/(?:tell|message|text)\s+([a-zA-Z0-9\s]+?)(?:\s+(?:saying|that|with\s+text|message:?)|:|$)/i);
+        if (match && match[1]) {
+          let target = match[1].replace(/(?:using|via|on|through)\s+(?:whatsapp|signal|telegram|sms)/gi, '').replace(/(?:whatsapp|signal|telegram|sms)/gi, '').trim();
+          if (target) recipient = target;
+        }
+      }
     }
 
     let messageContent = "Synchronized status package nominal.";
-    const contentMatch = p.match(/(?:saying|that|message is|content:?)\s+(.*)/i);
-    if (contentMatch && contentMatch[1]) {
-      messageContent = contentMatch[1].trim();
+    const contentTriggers = [' saying: ', ' saying ', ' that ', ' message is ', ' content: ', ' with text ', ' with message '];
+    for (const trigger of contentTriggers) {
+      const idx = p.indexOf(trigger);
+      if (idx !== -1) {
+        messageContent = p.substring(idx + trigger.length).trim();
+        break;
+      }
+    }
+    if (messageContent === "Synchronized status package nominal." && p.includes(':')) {
+      const colonIdx = p.indexOf(':');
+      if (colonIdx > 4 && !p.substring(0, colonIdx).includes('http')) {
+        messageContent = p.substring(colonIdx + 1).trim();
+      }
     }
 
     const appNameMap: Record<string, string> = {
@@ -1632,8 +1679,10 @@ function executeJarvisDeviceFunction(prompt: string) {
       sms: "SMS",
     };
 
+    const isDirectLocked = phoneNumber && phoneNumber.length >= 7;
+
     const newMsgRecord = {
-      id: `msg-${Date.now()}`,
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       app: chosenApp,
       sender: "You (JARVIS)",
       recipient,
@@ -1656,21 +1705,29 @@ function executeJarvisDeviceFunction(prompt: string) {
     broadcastSSE("devices_updated", { devices: connectedDevices });
 
     return {
-      intent: `Dispatch Direct Message via ${appNameMap[chosenApp]} to ${recipient} (${phoneNumber})`,
+      intent: isDirectLocked
+        ? `Dispatch Direct Message via ${appNameMap[chosenApp]} to ${recipient} (${phoneNumber})`
+        : `Compose Direct WhatsApp Message for ${recipient} (Direct Chat Lock)`,
       confidence: 0.99,
       tasks: [
         {
-          id: `task-${Date.now()}-1`,
+          id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           step: 1,
-          title: `Authenticate ${appNameMap[chosenApp]} Sandbox & Dispatch Direct Payload`,
+          title: isDirectLocked
+            ? `Route Direct Message to ${recipient} (${phoneNumber}) via ${appNameMap[chosenApp]}`
+            : `Bypass WhatsApp Manual Contact Picker: Opening Direct Contact Lock Hub`,
           tool: "device_control",
           parameters: { deviceId: phone.id, action: "send_message", app: chosenApp, recipient, phoneNumber, content: messageContent },
           status: "completed",
           requiredSecurityLevel: 1,
-          output: `Direct payload configured for ${recipient} (${phoneNumber}) via ${appNameMap[chosenApp]}.`,
+          output: isDirectLocked
+            ? `Direct payload configured for ${recipient} (${phoneNumber}) via ${appNameMap[chosenApp]}. Manual contact picker bypassed.`
+            : `Payload composed for ${recipient}. Direct Chat Lock Hub engaged to bypass manual contact picker haphazard.`,
         },
       ],
-      reply: `Direct message loaded for ${recipient} (${phoneNumber}) via ${appNameMap[chosenApp]}: "${messageContent}", sir. Direct conversation loaded without contact selection.`,
+      reply: isDirectLocked
+        ? `Direct message loaded for ${recipient} (${phoneNumber}) via ${appNameMap[chosenApp]}: "${messageContent}", sir. Direct conversation loaded without contact selection.`
+        : `I have composed your ${appNameMap[chosenApp]} message for ${recipient}: "${messageContent}". To eliminate WhatsApp's contact picker haphazard and open their personal chat directly, please select or specify their phone number.`,
     };
   }
   const isDeadboltUnlock = (p.includes("unlock") || p.includes("disengage") || p.includes("open")) && 
@@ -1983,29 +2040,21 @@ app.post("/api/jarvis/chat", async (req, res) => {
   // Fast-path: Check direct sovereign device functions (calling, cutting calls, 3rd party messaging, unlocking, hardware)
   const directDeviceResult = executeJarvisDeviceFunction(prompt);
   if (directDeviceResult) {
-    // Also execute any device mutations directly into connectedDevices state
-    executeJarvisDeviceFunction(prompt);
-
-    // Formulate sovereign zero-payable autonomous intelligence plan
-    const localPlan = generateLocalJarvisPlan(prompt);
     return res.json({
       success: true,
       source: "sovereign-local-neural-core",
       plan: {
-        id: `plan-${Date.now()}`,
+        id: `plan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         userPrompt: prompt,
-        intent: localPlan.intent,
-        confidence: localPlan.confidence,
-        tasks: localPlan.tasks,
+        intent: directDeviceResult.intent,
+        confidence: directDeviceResult.confidence,
+        tasks: directDeviceResult.tasks,
         status: "completed",
         createdAt: Date.now(),
       },
-      reply: localPlan.reply,
+      reply: directDeviceResult.reply,
     });
   }
-
-  // Execute device mutations
-  executeJarvisDeviceFunction(prompt);
 
   // Formulate sovereign zero-payable autonomous intelligence plan
   const localPlan = generateLocalJarvisPlan(prompt);
@@ -2013,7 +2062,7 @@ app.post("/api/jarvis/chat", async (req, res) => {
     success: true,
     source: "sovereign-local-neural-core",
     plan: {
-      id: `plan-${Date.now()}`,
+      id: `plan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       userPrompt: prompt,
       intent: localPlan.intent,
       confidence: localPlan.confidence,
